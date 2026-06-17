@@ -1,161 +1,131 @@
 #!/bin/bash
 # memory-graph setup
-# Usage (from inside your target project):
-#   /path/to/memory-graph/setup
-#   /path/to/memory-graph/setup /path/to/target/project
 #
-# What this does:
-#   1. Copies hooks to .cursor/hooks/
-#   2. Creates .cursor/hooks.json (or warns if exists)
-#   3. Creates .cursor/rules/main.mdc with repo name filled in
-#   4. Creates CLAUDE.md pointing to main.mdc
-#   5. Creates memory.md and sessions/ folder
-#   6. Installs git post-commit hook for full graphify rebuild
-#   7. Installs graphify (pip install graphifyy)
+# Mode A — in-place (after curl extraction):
+#   curl -sL https://github.com/SundaraSwani/memory-graph/archive/refs/heads/main.tar.gz \
+#     | tar -xz --strip-components=1 && bash setup
+#
+# Mode B — remote (toolkit already at ~/.cursor/skills/memory-graph/):
+#   cd /your/project && ~/.cursor/skills/memory-graph/setup
 
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-
-# Target project: argument or current directory
-if [ -n "${1:-}" ]; then
-  TARGET=$(cd "$1" && pwd)
-else
-  TARGET=$(pwd)
-fi
-
-# Don't install into memory-graph itself
-if [ "$TARGET" = "$SCRIPT_DIR" ]; then
-  echo "Error: run setup from inside your target project, not from memory-graph itself."
-  echo "  cd /your/project && $SCRIPT_DIR/setup"
-  exit 1
-fi
-
+TARGET=$(pwd)
 REPO_NAME=$(basename "$TARGET")
-echo "Installing memory-graph into: $TARGET ($REPO_NAME)"
+
+# Detect mode:
+# In-place = setup script is running from the target project itself
+# Remote   = setup script lives somewhere else (e.g. ~/.cursor/skills/memory-graph/)
+if [ "$SCRIPT_DIR" = "$TARGET" ]; then
+  MODE="inplace"
+else
+  MODE="remote"
+fi
+
+echo "memory-graph setup ($MODE mode) → $TARGET ($REPO_NAME)"
 echo ""
 
-# --- Cursor hooks ---
-mkdir -p "$TARGET/.cursor/hooks"
+# ── In-place mode: files already extracted, just configure ────────────────
+if [ "$MODE" = "inplace" ]; then
 
-cp "$SCRIPT_DIR/.cursor/hooks/on-session-end.sh" "$TARGET/.cursor/hooks/"
-chmod +x "$TARGET/.cursor/hooks/on-session-end.sh"
-echo "[ok] .cursor/hooks/ installed"
+  # Fix permissions
+  chmod +x "$TARGET/setup" "$TARGET/post-commit.sh" \
+           "$TARGET/.cursor/hooks/on-session-end.sh" 2>/dev/null || true
 
-# hooks.json — merge if already exists
-if [ ! -f "$TARGET/.cursor/hooks.json" ]; then
-  cp "$SCRIPT_DIR/.cursor/hooks.json" "$TARGET/.cursor/"
-  echo "[ok] .cursor/hooks.json created"
+  # Replace [REPO_NAME] placeholder in rules and CLAUDE.md
+  for f in \
+    "$TARGET/.cursor/rules/main.mdc" \
+    "$TARGET/.cursor/rules/sdlc.mdc" \
+    "$TARGET/CLAUDE.md"; do
+    [ -f "$f" ] && sed -i '' "s/\[REPO_NAME\]/$REPO_NAME/g" "$f" 2>/dev/null || true
+  done
+  echo "[ok] .cursor/ configured for $REPO_NAME"
+
+# ── Remote mode: copy files into target project ───────────────────────────
 else
-  echo "[warn] .cursor/hooks.json already exists — manually add the stop hooks from memory-graph/.cursor/hooks.json"
+
+  # Hooks
+  mkdir -p "$TARGET/.cursor/hooks"
+  cp "$SCRIPT_DIR/.cursor/hooks/on-session-end.sh" "$TARGET/.cursor/hooks/"
+  chmod +x "$TARGET/.cursor/hooks/on-session-end.sh"
+
+  if [ ! -f "$TARGET/.cursor/hooks.json" ]; then
+    cp "$SCRIPT_DIR/.cursor/hooks.json" "$TARGET/.cursor/"
+  else
+    echo "[warn] .cursor/hooks.json exists — add stop hook manually from memory-graph"
+  fi
+  echo "[ok] .cursor/hooks/ ready"
+
+  # Rules
+  mkdir -p "$TARGET/.cursor/rules"
+  for rule in main.mdc sdlc.mdc; do
+    if [ ! -f "$TARGET/.cursor/rules/$rule" ]; then
+      sed "s/\[REPO_NAME\]/$REPO_NAME/g" \
+        "$SCRIPT_DIR/.cursor/rules/$rule" > "$TARGET/.cursor/rules/$rule"
+    fi
+  done
+  echo "[ok] .cursor/rules/ ready"
+
+  # Root files
+  [ ! -f "$TARGET/CLAUDE.md" ] && \
+    sed "s/\[REPO_NAME\]/$REPO_NAME/g" "$SCRIPT_DIR/CLAUDE.md" > "$TARGET/CLAUDE.md"
+  [ ! -f "$TARGET/memory.md" ] && cp "$SCRIPT_DIR/memory.md" "$TARGET/memory.md"
+  [ ! -f "$TARGET/.gitignore" ] && cp "$SCRIPT_DIR/.gitignore" "$TARGET/.gitignore"
+  [ ! -f "$TARGET/post-commit.sh" ] && \
+    cp "$SCRIPT_DIR/post-commit.sh" "$TARGET/post-commit.sh" && \
+    chmod +x "$TARGET/post-commit.sh"
+  mkdir -p "$TARGET/sessions"
+  echo "[ok] root files ready"
+
 fi
 
-# --- Cursor rules ---
-mkdir -p "$TARGET/.cursor/rules"
-
-if [ ! -f "$TARGET/.cursor/rules/main.mdc" ]; then
-  sed "s/\[REPO_NAME\]/$REPO_NAME/g" "$SCRIPT_DIR/.cursor/rules/main.mdc" > "$TARGET/.cursor/rules/main.mdc"
-  echo "[ok] .cursor/rules/main.mdc created"
-else
-  echo "[warn] .cursor/rules/main.mdc already exists — skipping"
-fi
-
-# --- CLAUDE.md ---
-if [ ! -f "$TARGET/CLAUDE.md" ]; then
-  sed "s/\[REPO_NAME\]/$REPO_NAME/g" "$SCRIPT_DIR/CLAUDE.md" > "$TARGET/CLAUDE.md"
-  echo "[ok] CLAUDE.md created"
-else
-  echo "[warn] CLAUDE.md already exists — add this line manually: Read \`.cursor/rules/main.mdc\` for context."
-fi
-
-# --- memory.md + sessions/ ---
-mkdir -p "$TARGET/sessions"
-
-if [ ! -f "$TARGET/memory.md" ]; then
-  cp "$SCRIPT_DIR/memory.md" "$TARGET/memory.md"
-  echo "[ok] memory.md created"
-else
-  echo "[warn] memory.md already exists — skipping"
-fi
-echo "[ok] sessions/ folder ready"
-
-# --- git post-commit hook ---
+# ── Both modes: git post-commit hook ──────────────────────────────────────
 if [ -d "$TARGET/.git" ]; then
   HOOK_FILE="$TARGET/.git/hooks/post-commit"
   HOOK_LINE='bash "$(git rev-parse --show-toplevel)/post-commit.sh"'
-
-  # Copy post-commit.sh to target if it references graphify
-  if [ ! -f "$TARGET/post-commit.sh" ]; then
-    cp "$SCRIPT_DIR/post-commit.sh" "$TARGET/post-commit.sh"
-    chmod +x "$TARGET/post-commit.sh"
-  fi
-
   if [ ! -f "$HOOK_FILE" ]; then
     printf '#!/bin/bash\n%s\n' "$HOOK_LINE" > "$HOOK_FILE"
     chmod +x "$HOOK_FILE"
     echo "[ok] .git/hooks/post-commit installed"
+  elif ! grep -q "post-commit\.sh" "$HOOK_FILE" 2>/dev/null; then
+    printf '\n# memory-graph\n%s\n' "$HOOK_LINE" >> "$HOOK_FILE"
+    echo "[ok] Appended to existing post-commit hook"
   else
-    # Append only if not already present
-    if ! grep -q "memory-graph\|post-commit\.sh" "$HOOK_FILE" 2>/dev/null; then
-      printf '\n# memory-graph: full graphify rebuild\n%s\n' "$HOOK_LINE" >> "$HOOK_FILE"
-      echo "[ok] Appended to existing .git/hooks/post-commit"
-    else
-      echo "[warn] post-commit hook already references memory-graph — skipping"
-    fi
+    echo "[ok] post-commit hook already set"
   fi
 else
-  echo "[warn] Not a git repo — skipping post-commit hook. Run 'git init' first if needed."
+  echo "[warn] No .git found — run 'git init' then re-run setup to install post-commit hook"
 fi
 
-# --- graphify ---
+# ── Both modes: graphify ──────────────────────────────────────────────────
 echo ""
 echo "Checking graphify..."
-GRAPHIFY_OK=false
-python3 -c "import graphify" 2>/dev/null && GRAPHIFY_OK=true
-
-if [ "$GRAPHIFY_OK" = false ]; then
+python3 -c "import graphify" 2>/dev/null || \
   python3 -m pip install graphifyy -q 2>/dev/null || \
   python3 -m pip install graphifyy -q --break-system-packages 2>/dev/null || \
-  echo "[warn] Could not auto-install graphify — run manually: pip install graphifyy"
-fi
+  echo "[warn] graphify install failed — run: pip install graphifyy"
+python3 -c "import graphify" 2>/dev/null && echo "[ok] graphify ready" || echo "[warn] graphify not found"
 
-python3 -c "import graphify" 2>/dev/null && echo "[ok] graphify ready" || echo "[warn] graphify not found — run: pip install graphifyy"
-
-# --- gstack (Cursor) ---
+# ── Both modes: gstack ────────────────────────────────────────────────────
 echo ""
 echo "Checking gstack..."
 GSTACK_DIR="$HOME/.cursor/skills/gstack"
-
 if [ ! -d "$GSTACK_DIR" ]; then
   echo "Installing gstack for Cursor..."
   git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git "$GSTACK_DIR" 2>/dev/null && \
-  (cd "$GSTACK_DIR" && ./setup --host cursor 2>/dev/null) && \
-  echo "[ok] gstack installed at $GSTACK_DIR" || \
-  echo "[warn] gstack install failed — run manually: git clone https://github.com/garrytan/gstack.git $GSTACK_DIR && cd $GSTACK_DIR && ./setup --host cursor"
+    (cd "$GSTACK_DIR" && ./setup --host cursor 2>/dev/null) && \
+    echo "[ok] gstack installed" || \
+    echo "[warn] gstack install failed — run: git clone https://github.com/garrytan/gstack.git $GSTACK_DIR"
 else
-  echo "[ok] gstack already installed at $GSTACK_DIR"
+  echo "[ok] gstack already installed"
 fi
 
-# --- Done ---
+# ── Done ──────────────────────────────────────────────────────────────────
 echo ""
-echo "memory-graph installed in $TARGET"
+echo "Done. memory-graph active in $TARGET"
 echo ""
-echo "Next steps:"
-echo "  1. Run '/graphify .' to build the initial knowledge graph"
-echo "     Populates main.mdc with architecture + god nodes."
-echo "  2. Start any build session with '/grill-me' or '/grill-with-docs'"
-echo "     to reach common ground before writing code."
-echo "  3. Follow the SDLC loop in .cursor/rules/sdlc.mdc:"
-echo "     grill → /spec → /autoplan → build → /review → /qa → /ship"
-echo "  4. Sessions captured automatically after each agent stop."
-echo "     Hook creates the file; append '## Decisions' with caveman bullets."
-echo ""
-echo "Files created:"
-echo "  .cursor/rules/main.mdc   — AI brief (always loaded by Cursor)"
-echo "  .cursor/rules/sdlc.mdc   — SDLC workflow (always loaded by Cursor)"
-echo "  .cursor/hooks.json       — stop hook config"
-echo "  CLAUDE.md                — AI brief + gstack section for Claude Code"
-echo "  memory.md                — session index"
-echo "  sessions/                — per-session decision logs"
-echo ""
-echo "gstack skills available: /spec /autoplan /review /qa /ship /learn /investigate ..."
+echo "Next:"
+echo "  /graphify .           — build knowledge graph, populate main.mdc"
+echo "  /grill-me             — start any new feature (grill before code)"
+echo "  grill → /spec → /autoplan → build → /review → /qa → /ship"

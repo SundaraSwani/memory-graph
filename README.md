@@ -9,33 +9,22 @@ Three things it does:
 
 ---
 
-## Install (30 seconds)
-
-**Step 1 — get memory-graph (once per machine):**
-
-```bash
-# Option A: git clone (works with public or private repos)
-git clone https://github.com/SundaraSwani/memory-graph.git ~/.cursor/skills/memory-graph
-
-# Option B: gh CLI (if repo is private and you have gh installed)
-gh repo clone SundaraSwani/memory-graph ~/.cursor/skills/memory-graph
-
-# Option C: curl tarball (public repos only)
-mkdir -p ~/.cursor/skills && \
-  curl -sL https://github.com/SundaraSwani/memory-graph/archive/refs/heads/main.tar.gz \
-  | tar -xz -C ~/.cursor/skills/ \
-  && mv ~/.cursor/skills/memory-graph-main ~/.cursor/skills/memory-graph \
-  && chmod +x ~/.cursor/skills/memory-graph/setup \
-              ~/.cursor/skills/memory-graph/post-commit.sh \
-              ~/.cursor/skills/memory-graph/.cursor/hooks/on-session-end.sh
-```
-
-**Step 2 — install into your project:**
+## Install (one command, from inside your project)
 
 ```bash
 cd /your/project
-~/.cursor/skills/memory-graph/setup
+curl -sL https://github.com/SundaraSwani/memory-graph/archive/refs/heads/main.tar.gz \
+  | tar -xz --strip-components=1 && bash setup
 ```
+
+This extracts `.cursor/`, `CLAUDE.md`, `memory.md`, `sessions/` directly into your project — no wrapper folder. Then `bash setup` configures repo name, installs graphify + gstack, and wires the git post-commit hook.
+
+> **Private repo?** The curl only works if the GitHub repo is public.
+> If private, use git instead:
+> ```bash
+> git clone https://github.com/SundaraSwani/memory-graph.git ~/.cursor/skills/memory-graph
+> cd /your/project && ~/.cursor/skills/memory-graph/setup
+> ```
 
 Then run `/graphify .` once to build the initial graph and populate `main.mdc`.
 
