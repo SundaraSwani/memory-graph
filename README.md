@@ -11,8 +11,23 @@ Three things it does:
 
 ## Install (30 seconds)
 
-From inside any project:
-git clone this repo
+**Step 1 — get memory-graph (once per machine):**
+
+```bash
+# Option A: no git required (recommended)
+curl -sL https://github.com/SundaraSwani/memory-graph/archive/refs/heads/main.tar.gz \
+  | tar -xz -C ~/.cursor/skills/ \
+  && mv ~/.cursor/skills/memory-graph-main ~/.cursor/skills/memory-graph \
+  && chmod +x ~/.cursor/skills/memory-graph/setup \
+              ~/.cursor/skills/memory-graph/post-commit.sh \
+              ~/.cursor/skills/memory-graph/.cursor/hooks/on-session-end.sh
+
+# Option B: git clone
+git clone https://github.com/SundaraSwani/memory-graph.git ~/.cursor/skills/memory-graph
+```
+
+**Step 2 — install into your project:**
+
 ```bash
 cd /your/project
 ~/.cursor/skills/memory-graph/setup
