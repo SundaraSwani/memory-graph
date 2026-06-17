@@ -14,16 +14,20 @@ Three things it does:
 **Step 1 — get memory-graph (once per machine):**
 
 ```bash
-# Option A: no git required (recommended)
-curl -sL https://github.com/SundaraSwani/memory-graph/archive/refs/heads/main.tar.gz \
+# Option A: git clone (works with public or private repos)
+git clone https://github.com/SundaraSwani/memory-graph.git ~/.cursor/skills/memory-graph
+
+# Option B: gh CLI (if repo is private and you have gh installed)
+gh repo clone SundaraSwani/memory-graph ~/.cursor/skills/memory-graph
+
+# Option C: curl tarball (public repos only)
+mkdir -p ~/.cursor/skills && \
+  curl -sL https://github.com/SundaraSwani/memory-graph/archive/refs/heads/main.tar.gz \
   | tar -xz -C ~/.cursor/skills/ \
   && mv ~/.cursor/skills/memory-graph-main ~/.cursor/skills/memory-graph \
   && chmod +x ~/.cursor/skills/memory-graph/setup \
               ~/.cursor/skills/memory-graph/post-commit.sh \
               ~/.cursor/skills/memory-graph/.cursor/hooks/on-session-end.sh
-
-# Option B: git clone
-git clone https://github.com/SundaraSwani/memory-graph.git ~/.cursor/skills/memory-graph
 ```
 
 **Step 2 — install into your project:**
