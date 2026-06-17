@@ -1,0 +1,57 @@
+---
+description: Living AI brief for [REPO_NAME]. Read before doing anything.
+alwaysApply: true
+---
+
+# [REPO_NAME] — AI Orientation Brief
+
+> This file is auto-updated by the memory-graph system. Do not edit the God Nodes or Architecture sections by hand — they are rewritten by graphify after each commit. Edit the Purpose section to describe this repo.
+
+---
+
+## Purpose
+
+<!-- Describe what this repo does. 1-3 sentences. Updated manually. -->
+_Not set. Update this section to describe the repo._
+
+---
+
+## Architecture
+
+<!-- Auto-updated by graphify after git commits. Communities and high-level structure. -->
+_Run `/graphify .` to populate this section._
+
+---
+
+## God Nodes
+
+<!-- Auto-updated by graphify. Highest-degree nodes in the knowledge graph — touch carefully. -->
+_No graph yet. Run `/graphify .` to build._
+
+---
+
+## Session Memory
+
+Latest sessions (newest first). Full index → `memory.md`. Full logs → `sessions/`.
+
+<!-- Auto-updated by .cursor/hooks/memory-update.sh -->
+_No sessions yet._
+
+---
+
+## AI Instructions
+
+You are working in a repo with persistent memory. Follow these rules every session:
+
+1. **Read this file first.** God Nodes and Architecture show what is load-bearing.
+
+2. **Before you finish any session**, write a `## Decisions` section to the current session file in `sessions/`. The hook creates the file; you fill in the decisions. Use caveman style — terse, 3-5 bullets:
+   ```
+   Chose JWT over sessions. Stateless app. Refresh token deferred. auth.ts now god node.
+   ```
+
+3. **If you touch a God Node**, update `god_nodes_touched: []` in the session file's frontmatter.
+
+4. **To query the graph** for architecture questions: `/graphify query "<question>"`.
+
+5. **If the graph is stale** (no `graphify-out/graph.json`): suggest running `/graphify .` to rebuild.

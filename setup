@@ -1,0 +1,140 @@
+#!/bin/bash
+# memory-graph setup
+# Usage (from inside your target project):
+#   /path/to/memory-graph/setup
+#   /path/to/memory-graph/setup /path/to/target/project
+#
+# What this does:
+#   1. Copies hooks to .cursor/hooks/
+#   2. Creates .cursor/hooks.json (or warns if exists)
+#   3. Creates .cursor/rules/main.mdc with repo name filled in
+#   4. Creates CLAUDE.md pointing to main.mdc
+#   5. Creates memory.md and sessions/ folder
+#   6. Installs git post-commit hook for full graphify rebuild
+#   7. Installs graphify (pip install graphifyy)
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+# Target project: argument or current directory
+if [ -n "${1:-}" ]; then
+  TARGET=$(cd "$1" && pwd)
+else
+  TARGET=$(pwd)
+fi
+
+# Don't install into memory-graph itself
+if [ "$TARGET" = "$SCRIPT_DIR" ]; then
+  echo "Error: run setup from inside your target project, not from memory-graph itself."
+  echo "  cd /your/project && $SCRIPT_DIR/setup"
+  exit 1
+fi
+
+REPO_NAME=$(basename "$TARGET")
+echo "Installing memory-graph into: $TARGET ($REPO_NAME)"
+echo ""
+
+# --- Cursor hooks ---
+mkdir -p "$TARGET/.cursor/hooks"
+
+cp "$SCRIPT_DIR/.cursor/hooks/on-session-end.sh" "$TARGET/.cursor/hooks/"
+chmod +x "$TARGET/.cursor/hooks/on-session-end.sh"
+echo "[ok] .cursor/hooks/ installed"
+
+# hooks.json — merge if already exists
+if [ ! -f "$TARGET/.cursor/hooks.json" ]; then
+  cp "$SCRIPT_DIR/.cursor/hooks.json" "$TARGET/.cursor/"
+  echo "[ok] .cursor/hooks.json created"
+else
+  echo "[warn] .cursor/hooks.json already exists — manually add the stop hooks from memory-graph/.cursor/hooks.json"
+fi
+
+# --- Cursor rules ---
+mkdir -p "$TARGET/.cursor/rules"
+
+if [ ! -f "$TARGET/.cursor/rules/main.mdc" ]; then
+  sed "s/\[REPO_NAME\]/$REPO_NAME/g" "$SCRIPT_DIR/.cursor/rules/main.mdc" > "$TARGET/.cursor/rules/main.mdc"
+  echo "[ok] .cursor/rules/main.mdc created"
+else
+  echo "[warn] .cursor/rules/main.mdc already exists — skipping"
+fi
+
+# --- CLAUDE.md ---
+if [ ! -f "$TARGET/CLAUDE.md" ]; then
+  sed "s/\[REPO_NAME\]/$REPO_NAME/g" "$SCRIPT_DIR/CLAUDE.md" > "$TARGET/CLAUDE.md"
+  echo "[ok] CLAUDE.md created"
+else
+  echo "[warn] CLAUDE.md already exists — add this line manually: Read \`.cursor/rules/main.mdc\` for context."
+fi
+
+# --- memory.md + sessions/ ---
+mkdir -p "$TARGET/sessions"
+
+if [ ! -f "$TARGET/memory.md" ]; then
+  cp "$SCRIPT_DIR/memory.md" "$TARGET/memory.md"
+  echo "[ok] memory.md created"
+else
+  echo "[warn] memory.md already exists — skipping"
+fi
+echo "[ok] sessions/ folder ready"
+
+# --- git post-commit hook ---
+if [ -d "$TARGET/.git" ]; then
+  HOOK_FILE="$TARGET/.git/hooks/post-commit"
+  HOOK_LINE='bash "$(git rev-parse --show-toplevel)/post-commit.sh"'
+
+  # Copy post-commit.sh to target if it references graphify
+  if [ ! -f "$TARGET/post-commit.sh" ]; then
+    cp "$SCRIPT_DIR/post-commit.sh" "$TARGET/post-commit.sh"
+    chmod +x "$TARGET/post-commit.sh"
+  fi
+
+  if [ ! -f "$HOOK_FILE" ]; then
+    printf '#!/bin/bash\n%s\n' "$HOOK_LINE" > "$HOOK_FILE"
+    chmod +x "$HOOK_FILE"
+    echo "[ok] .git/hooks/post-commit installed"
+  else
+    # Append only if not already present
+    if ! grep -q "memory-graph\|post-commit\.sh" "$HOOK_FILE" 2>/dev/null; then
+      printf '\n# memory-graph: full graphify rebuild\n%s\n' "$HOOK_LINE" >> "$HOOK_FILE"
+      echo "[ok] Appended to existing .git/hooks/post-commit"
+    else
+      echo "[warn] post-commit hook already references memory-graph — skipping"
+    fi
+  fi
+else
+  echo "[warn] Not a git repo — skipping post-commit hook. Run 'git init' first if needed."
+fi
+
+# --- graphify ---
+echo ""
+echo "Checking graphify..."
+GRAPHIFY_OK=false
+python3 -c "import graphify" 2>/dev/null && GRAPHIFY_OK=true
+
+if [ "$GRAPHIFY_OK" = false ]; then
+  python3 -m pip install graphifyy -q 2>/dev/null || \
+  python3 -m pip install graphifyy -q --break-system-packages 2>/dev/null || \
+  echo "[warn] Could not auto-install graphify — run manually: pip install graphifyy"
+fi
+
+python3 -c "import graphify" 2>/dev/null && echo "[ok] graphify ready" || echo "[warn] graphify not found — run: pip install graphifyy"
+
+# --- Done ---
+echo ""
+echo "memory-graph installed in $TARGET"
+echo ""
+echo "Next steps:"
+echo "  1. Run '/graphify .' to build the initial knowledge graph"
+echo "     This populates main.mdc with architecture + god nodes."
+echo "  2. Sessions are captured automatically after each Cursor agent stop."
+echo "     The hook creates the file; you append '## Decisions' with caveman bullets."
+echo "  3. Full graph rebuild happens automatically on 'git commit'."
+echo ""
+echo "Files created:"
+echo "  .cursor/rules/main.mdc   — AI brief (always loaded by Cursor)"
+echo "  .cursor/hooks.json       — hook config"
+echo "  CLAUDE.md                — AI brief pointer for Claude Code"
+echo "  memory.md                — session index"
+echo "  sessions/                — per-session decision logs"
