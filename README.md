@@ -18,14 +18,6 @@ curl -sL https://github.com/SundaraSwani/memory-graph/archive/refs/heads/main.ta
 ```
 
 This extracts `.cursor/`, `CLAUDE.md`, `memory.md`, `sessions/` directly into your project — no wrapper folder. Then `bash setup` configures repo name, installs graphify + gstack, and wires the git post-commit hook.
-
-> **Private repo?** The curl only works if the GitHub repo is public.
-> If private, use git instead:
-> ```bash
-> git clone https://github.com/SundaraSwani/memory-graph.git ~/.cursor/skills/memory-graph
-> cd /your/project && ~/.cursor/skills/memory-graph/setup
-> ```
-
 Then run `/graphify .` once to build the initial graph and populate `main.mdc`.
 
 ---
