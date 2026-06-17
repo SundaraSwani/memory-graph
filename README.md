@@ -12,9 +12,8 @@ Three things it does:
 ## Install (30 seconds)
 
 From inside any project:
-
+git clone this repo
 ```bash
-git clone https://github.com/YOUR_USERNAME/memory-graph ~/.cursor/skills/memory-graph
 cd /your/project
 ~/.cursor/skills/memory-graph/setup
 ```
