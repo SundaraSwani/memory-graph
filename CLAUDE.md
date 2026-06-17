@@ -1,25 +1,23 @@
 # [REPO_NAME]
 
-This repo uses memory-graph for persistent AI context across sessions.
+Read `.cursor/rules/main.mdc` for architecture, god nodes, and session memory.
+Read `.cursor/rules/sdlc.mdc` for the enforced SDLC workflow.
 
-## Read First
+## gstack
 
-Read `.cursor/rules/main.mdc` before doing anything. It contains:
-- Repo purpose and architecture
-- God nodes (high-degree files — touch carefully)
-- Recent session memory
-- Instructions for this session
+Use gstack skills for the full SDLC loop. Available skills:
+/office-hours, /spec, /autoplan, /plan-ceo-review, /plan-eng-review, /plan-design-review,
+/review, /codex, /qa, /qa-only, /design-review, /ship, /land-and-deploy,
+/retro, /learn, /investigate, /document-release, /careful, /guard, /freeze.
 
-## Memory System
+Never use `mcp__claude-in-chrome__*` tools — use `/browse` from gstack instead.
 
-| File | Updated by | Purpose |
-|------|------------|---------|
-| `.cursor/rules/main.mdc` | graphify (post-commit) | AI orientation brief |
-| `memory.md` | stop hook | Index of all sessions |
-| `sessions/YYYY-MM-DD-HH-MM.md` | stop hook + you | Per-session decisions |
-| `graphify-out/GRAPH_REPORT.md` | graphify | God nodes, community report |
+## Workflow entry point
 
-## End of Every Session
+New feature or build request → grill first (`/grill-me` or `/grill-with-docs`) → then follow sdlc.mdc.
 
-Write `## Decisions` to the current session file in `sessions/`.
-Caveman style. What was decided, what was deferred, which god nodes were touched.
+## Memory
+
+- `memory.md` — session index
+- `sessions/` — per-session decision logs (caveman "why" bullets)
+- `graphify-out/GRAPH_REPORT.md` — full codebase graph with god nodes

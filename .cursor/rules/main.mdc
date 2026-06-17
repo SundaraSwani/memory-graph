@@ -41,17 +41,22 @@ _No sessions yet._
 
 ## AI Instructions
 
-You are working in a repo with persistent memory. Follow these rules every session:
+You are working in a repo with persistent memory and an enforced SDLC workflow.
 
 1. **Read this file first.** God Nodes and Architecture show what is load-bearing.
 
-2. **Before you finish any session**, write a `## Decisions` section to the current session file in `sessions/`. The hook creates the file; you fill in the decisions. Use caveman style — terse, 3-5 bullets:
+2. **Follow the SDLC workflow** in `.cursor/rules/sdlc.mdc` — grill first, spec, plan, build, review, test, ship, capture. Do not skip phases.
+
+3. **Before you finish any session**, write a `## Decisions` section to the current session file in `sessions/`. The hook creates the file; you fill in the decisions. Caveman style — terse, 3-5 bullets:
    ```
    Chose JWT over sessions. Stateless app. Refresh token deferred. auth.ts now god node.
    ```
 
-3. **If you touch a God Node**, update `god_nodes_touched: []` in the session file's frontmatter.
+4. **If you touch a God Node**, update `god_nodes_touched: []` in the session file's frontmatter.
 
-4. **To query the graph** for architecture questions: `/graphify query "<question>"`.
+5. **Memory layers** (read before architectural changes):
+   - `memory.md` — full session index
+   - `sessions/` — per-session "why" logs
+   - `/learn` — gstack's cross-session learnings for this codebase
 
-5. **If the graph is stale** (no `graphify-out/graph.json`): suggest running `/graphify .` to rebuild.
+6. **To query the graph**: `/graphify query "<question>"`. If graph is stale: run `/graphify .`.

@@ -1,0 +1,172 @@
+---
+description: SDLC workflow — grill first, then gstack, then memory capture. Enforced entry point for every build request.
+alwaysApply: true
+---
+
+# SDLC Workflow
+
+> This is the enforced process for this repo. Do not skip phases. Each phase gates the next.
+
+## The Loop
+
+```
+NEW FEATURE/REQUEST
+       ↓
+   1. GRILL          — reach common ground before touching code
+       ↓
+   2. SPEC           — formalize what was agreed (/spec)
+       ↓
+   3. PLAN           — architecture + design review (/autoplan)
+       ↓
+   4. BUILD          — implement
+       ↓
+   5. REVIEW         — catch bugs before shipping (/review)
+       ↓
+   6. TEST           — verify in browser (/qa)
+       ↓
+   7. SHIP           — PR + tests + docs (/ship)
+       ↓
+   8. CAPTURE        — session file auto-created by hook
+```
+
+---
+
+## Phase 1: GRILL (mandatory gate)
+
+**Trigger:** User describes something new to build, or there is no session doc for this feature yet.
+
+**How:** Use `/grill-me` or `/grill-with-docs` to reach common ground before any code is written.
+
+- Ask one question at a time.
+- Provide your recommended answer for each question.
+- Resolve dependencies between decisions one by one.
+- Do NOT proceed to Phase 2 until you have explicit agreement on: (1) what is being built, (2) what is out of scope, (3) why now.
+
+**If user says "just build it" or "skip grilling":** Ask one clarifying question minimum — scope and out-of-scope. Then proceed.
+
+---
+
+## Phase 2: SPEC (/spec)
+
+Turn the grilling outcome into a precise, executable spec.
+
+```
+/spec
+```
+
+- Five phases: why → scope → technical (reads codebase) → draft → file.
+- Blocks below 7/10 quality score.
+- Archives to `.gstack/projects/*/specs/` for recall.
+- `--execute` spawns implementation in a fresh worktree.
+
+---
+
+## Phase 3: PLAN (/autoplan)
+
+Run the full review pipeline on the spec before writing code.
+
+```
+/autoplan
+```
+
+- Runs CEO → design → eng review automatically.
+- Surfaces only taste decisions for your approval.
+- Writes a design doc that feeds all downstream skills.
+
+---
+
+## Phase 4: BUILD
+
+Implement against the approved plan. Use `/careful` or `/guard` for production-touching work.
+
+Check the graph before touching god nodes:
+```
+/graphify query "CONCEPT"
+```
+
+God nodes are listed in `main.mdc`. Changes to them ripple everywhere.
+
+---
+
+## Phase 5: REVIEW (/review)
+
+```
+/review
+```
+
+- Finds bugs that pass CI but blow up in production.
+- Auto-fixes obvious issues. Flags completeness gaps.
+- Use `/codex` for an independent second opinion from a different model.
+
+---
+
+## Phase 6: TEST (/qa)
+
+```
+/qa
+```
+
+- Opens a real browser, clicks through flows.
+- Auto-generates regression tests for every fix.
+- Use `/qa-only` for a report without code changes.
+
+---
+
+## Phase 7: SHIP (/ship)
+
+```
+/ship
+```
+
+- Syncs main, runs tests, audits coverage, opens PR.
+- Auto-invokes `/document-release` to keep docs current.
+- Bootstraps test framework if project has none.
+
+---
+
+## Phase 8: CAPTURE (automatic)
+
+The `on-session-end.sh` hook fires automatically at agent stop.
+
+- Creates `sessions/YYYY-MM-DD-N.md` with changed files.
+- Appends row to `memory.md` index.
+- Runs graphify incremental AST update in background.
+
+**Your job after the hook fires:** Append `## Decisions` to the session file. Caveman style. 3-5 bullets. The "why", not the "what".
+
+---
+
+## Available gstack skills
+
+```
+/office-hours       start here — reframes the problem before planning
+/spec               vague intent → precise executable spec
+/autoplan           full review pipeline (CEO + design + eng)
+/plan-ceo-review    challenge scope and find the 10-star product
+/plan-eng-review    lock architecture, data flow, diagrams, edge cases
+/plan-design-review rate design dimensions 0-10, interactive
+/review             staff engineer review — bugs that pass CI
+/codex              second opinion from OpenAI Codex (different model)
+/qa                 real browser QA, fixes bugs, generates regression tests
+/ship               sync → test → PR
+/land-and-deploy    merge → CI → verify in production
+/retro              weekly team retro with per-person breakdowns
+/learn              manage what gstack learned — review, prune, export
+/careful            warn before destructive commands
+/guard              /careful + /freeze — max safety for prod work
+/freeze             lock edits to one directory while debugging
+/investigate        root-cause debugging — Iron Law: no fixes without investigation
+/document-release   update all docs to match what just shipped
+```
+
+---
+
+## Memory layers (read before architectural changes)
+
+| Layer | What it contains | When to read |
+|-------|-----------------|--------------|
+| `main.mdc` | Architecture + god nodes (graphify) | Always — auto-loaded |
+| `memory.md` | Index of all sessions | Before architectural changes |
+| `sessions/` | Per-session caveman decisions | When you need the "why" for a past choice |
+| `/learn` | gstack's cross-session learnings | Before starting a feature in familiar territory |
+| `graphify-out/GRAPH_REPORT.md` | Full graph audit with surprising connections | Before touching god nodes |

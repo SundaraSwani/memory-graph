@@ -121,20 +121,41 @@ fi
 
 python3 -c "import graphify" 2>/dev/null && echo "[ok] graphify ready" || echo "[warn] graphify not found — run: pip install graphifyy"
 
+# --- gstack (Cursor) ---
+echo ""
+echo "Checking gstack..."
+GSTACK_DIR="$HOME/.cursor/skills/gstack"
+
+if [ ! -d "$GSTACK_DIR" ]; then
+  echo "Installing gstack for Cursor..."
+  git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git "$GSTACK_DIR" 2>/dev/null && \
+  (cd "$GSTACK_DIR" && ./setup --host cursor 2>/dev/null) && \
+  echo "[ok] gstack installed at $GSTACK_DIR" || \
+  echo "[warn] gstack install failed — run manually: git clone https://github.com/garrytan/gstack.git $GSTACK_DIR && cd $GSTACK_DIR && ./setup --host cursor"
+else
+  echo "[ok] gstack already installed at $GSTACK_DIR"
+fi
+
 # --- Done ---
 echo ""
 echo "memory-graph installed in $TARGET"
 echo ""
 echo "Next steps:"
 echo "  1. Run '/graphify .' to build the initial knowledge graph"
-echo "     This populates main.mdc with architecture + god nodes."
-echo "  2. Sessions are captured automatically after each Cursor agent stop."
-echo "     The hook creates the file; you append '## Decisions' with caveman bullets."
-echo "  3. Full graph rebuild happens automatically on 'git commit'."
+echo "     Populates main.mdc with architecture + god nodes."
+echo "  2. Start any build session with '/grill-me' or '/grill-with-docs'"
+echo "     to reach common ground before writing code."
+echo "  3. Follow the SDLC loop in .cursor/rules/sdlc.mdc:"
+echo "     grill → /spec → /autoplan → build → /review → /qa → /ship"
+echo "  4. Sessions captured automatically after each agent stop."
+echo "     Hook creates the file; append '## Decisions' with caveman bullets."
 echo ""
 echo "Files created:"
 echo "  .cursor/rules/main.mdc   — AI brief (always loaded by Cursor)"
-echo "  .cursor/hooks.json       — hook config"
-echo "  CLAUDE.md                — AI brief pointer for Claude Code"
+echo "  .cursor/rules/sdlc.mdc   — SDLC workflow (always loaded by Cursor)"
+echo "  .cursor/hooks.json       — stop hook config"
+echo "  CLAUDE.md                — AI brief + gstack section for Claude Code"
 echo "  memory.md                — session index"
 echo "  sessions/                — per-session decision logs"
+echo ""
+echo "gstack skills available: /spec /autoplan /review /qa /ship /learn /investigate ..."

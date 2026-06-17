@@ -72,10 +72,27 @@ At the next session, the agent reads `main.mdc` (god nodes + architecture) and s
 
 ---
 
+## gstack integration
+
+memory-graph installs [gstack](https://github.com/garrytan/gstack) automatically. gstack handles the SDLC; memory-graph handles structural understanding. They are complementary layers:
+
+| Layer | Tool | What it stores |
+|-------|------|---------------|
+| Structural | graphify → `main.mdc` | Architecture, god nodes, community graph |
+| Decisions | `sessions/` + `memory.md` | Per-session "why" logs, indexed |
+| Cross-session learnings | gstack `/learn` | Patterns, pitfalls, preferences |
+| Persistent knowledge | gstack GBrain (opt-in) | Database-backed memory across machines |
+
+The enforced workflow lives in `.cursor/rules/sdlc.mdc`:
+```
+grill-me/grill-with-docs → /spec → /autoplan → build → /review → /qa → /ship → capture
+```
+
 ## Requirements
 
 - Cursor (for hooks + `.mdc` rules)
 - Python 3.8+ (for graphify)
 - Git
+- Bun v1.0+ (for gstack browser features)
 
-graphify is installed automatically by `setup`. Manual: `pip install graphifyy`
+graphify and gstack are installed automatically by `setup`.
