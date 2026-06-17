@@ -49,7 +49,7 @@ After every agent stop where files changed:
    files: [src/auth.ts, src/db.ts, README.md]
    ---
    ```
-2. Agent appends `## Decisions` with caveman bullets — the "why":
+2. Agent appends `## Decisions`- the "why":
    ```markdown
    ## Decisions
    - JWT not sessions. Stateless. Simpler.
