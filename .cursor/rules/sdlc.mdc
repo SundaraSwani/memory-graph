@@ -65,6 +65,14 @@ Turn the grilling outcome into a precise, executable spec.
 
 Run the full review pipeline on the spec before writing code.
 
+**Before running /autoplan**, traverse the graph for every concept in the spec:
+```
+/graphify query "CONCEPT_FROM_SPEC"
+```
+- Identify which communities are touched. Cross-community changes = higher risk.
+- Check if any god node (see `main.mdc`) is in the blast radius. If yes, flag it.
+- Surface surprising connections — graphify often finds non-obvious dependencies.
+
 ```
 /autoplan
 ```
@@ -90,6 +98,14 @@ God nodes are listed in `main.mdc`. Changes to them ripple everywhere.
 
 ## Phase 5: REVIEW (/review)
 
+**Before reviewing**, query the graph for every file you changed:
+```
+/graphify query "CHANGED_FILE_OR_FUNCTION"
+```
+- Find all nodes that depend on what you changed (inbound edges = callers, downstream consumers).
+- Any node with CRITICAL or HIGH risk in the god node table needs manual review — don't rely on CI alone.
+- Note communities that were crossed: cross-community changes are the most common source of subtle bugs.
+
 ```
 /review
 ```
@@ -101,6 +117,14 @@ God nodes are listed in `main.mdc`. Changes to them ripple everywhere.
 ---
 
 ## Phase 6: TEST (/qa)
+
+**Before QA**, use the graph to build your test scope:
+```
+/graphify query "FEATURE_OR_ENTRYPOINT"
+```
+- Trace downstream from the entry point to find all affected flows.
+- Any god node reachable from your change = must test explicitly, not just happy path.
+- Cross-community paths = integration seams most likely to break — test those boundaries.
 
 ```
 /qa

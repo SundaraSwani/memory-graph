@@ -34,7 +34,7 @@ _No graph yet. Run `/graphify .` to build._
 
 Latest sessions (newest first). Full index → `memory.md`. Full logs → `sessions/`.
 
-<!-- Auto-updated by .cursor/hooks/memory-update.sh -->
+<!-- Auto-updated by .cursor/hooks/on-session-end.sh -->
 _No sessions yet._
 
 ---
@@ -47,16 +47,21 @@ You are working in a repo with persistent memory and an enforced SDLC workflow.
 
 2. **Follow the SDLC workflow** in `.cursor/rules/sdlc.mdc` — grill first, spec, plan, build, review, test, ship, capture. Do not skip phases.
 
-3. **Before you finish any session**, write a `## Decisions` section to the current session file in `sessions/`. The hook creates the file; you fill in the decisions. Caveman style — terse, 3-5 bullets:
+3. **Before answering any question about code or architecture**, traverse the graph first:
+   - Run `/graphify query "<concept or filename>"` to find connected nodes, communities, and risk level.
+   - If the question touches a god node (see table above), always check its neighbours before answering — god nodes have wide blast radius.
+   - If `graphify-out/graph.json` is available, you can also read it directly to reason about communities and edges.
+
+4. **Before you finish any session**, write a `## Decisions` section to the current session file in `sessions/`. The hook creates the file; you fill in the decisions. Caveman style — terse, 3-5 bullets:
    ```
    Chose JWT over sessions. Stateless app. Refresh token deferred. auth.ts now god node.
    ```
 
-4. **If you touch a God Node**, update `god_nodes_touched: []` in the session file's frontmatter.
+5. **If you touch a God Node**, update `god_nodes_touched: []` in the session file's frontmatter.
 
-5. **Memory layers** (read before architectural changes):
+6. **Memory layers** (read before architectural changes):
    - `memory.md` — full session index
    - `sessions/` — per-session "why" logs
    - `/learn` — gstack's cross-session learnings for this codebase
 
-6. **To query the graph**: `/graphify query "<question>"`. If graph is stale: run `/graphify .`.
+7. **To query the graph**: `/graphify query "<question>"`. If graph is stale: run `/graphify .`.
