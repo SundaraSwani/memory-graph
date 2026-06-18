@@ -216,8 +216,75 @@ if command -v gstack-context-save >/dev/null 2>&1; then
   (gstack-context-save > /dev/null 2>&1) &
 fi
 
-# ── 10. Ask agent to fill in the session file ────────────────────────────────
+# ── 10. Build graph impact summary for affected files ────────────────────────
+graph_impact=""
+export CHANGED_FILES="$raw_changed"
+if [ -f "$REPO_ROOT/graphify-out/graph.json" ] && command -v python3 >/dev/null 2>&1; then
+  graph_impact=$(python3 - "$REPO_ROOT/graphify-out/graph.json" "$REPO_ROOT" <<'PYEOF'
+import json, sys, os
+from collections import defaultdict, Counter
+
+graph_file = sys.argv[1]
+changed_files = [f.strip() for f in os.environ.get("CHANGED_FILES", "").splitlines() if f.strip()]
+
+try:
+    g = json.loads(open(graph_file).read())
+    nodes = g.get("nodes", [])
+    links = g.get("links", g.get("edges", []))
+
+    degree = Counter()
+    for e in links:
+        degree[e.get("source", "")] += 1
+        degree[e.get("target", "")] += 1
+
+    def risk(d):
+        if d >= 200: return "CRITICAL"
+        if d >= 100: return "HIGH"
+        if d >= 60:  return "MEDIUM"
+        return ""
+
+    touched_communities = defaultdict(list)
+    god_nodes_hit = []
+    for node in nodes:
+        nid = node.get("id", "")
+        for cf in changed_files:
+            if cf in nid or nid in cf:
+                comm = node.get("community", node.get("group", "?"))
+                label = node.get("label", nid)
+                touched_communities[comm].append(label)
+                r = risk(degree.get(nid, 0))
+                if r in ("CRITICAL", "HIGH"):
+                    god_nodes_hit.append(f"{label} ({r})")
+                break
+
+    if not touched_communities:
+        print("")
+        sys.exit(0)
+
+    parts = []
+    comm_count = len(touched_communities)
+    parts.append(f"Graph impact: {comm_count} {'community' if comm_count == 1 else 'communities'} touched.")
+    for comm, labels in list(touched_communities.items())[:4]:
+        sample = ", ".join(labels[:3])
+        if len(labels) > 3:
+            sample += f" (+{len(labels)-3} more)"
+        parts.append(f"  • community {comm}: {sample}")
+    if god_nodes_hit:
+        parts.append(f"  ⚠ God nodes in blast radius: {', '.join(god_nodes_hit[:3])}")
+    print("\n".join(parts))
+except Exception:
+    print("")
+PYEOF
+  ) 2>/dev/null || graph_impact=""
+fi
+
+# ── 11. Ask agent to fill in the session file ─────────────────────────────────
+graph_note=""
+if [ -n "$graph_impact" ]; then
+  graph_note=" Graph context: ${graph_impact}. Query /graphify before writing decisions if any nodes are CRITICAL or HIGH risk."
+fi
+
 cat <<JSON
-{"followup_message": "Session file created at \`${session_file}\` (${today} ${now}, topics: ${topics}). Fill in three sections: (1) ## What happened — 1-2 sentences on the task; (2) ## Decisions — 3-5 caveman bullets, the *why*; (3) ## What to pick up next — open threads or follow-ups. Keep the whole file under 50 lines."}
+{"followup_message": "Session file created at \`${session_file}\` (${today} ${now}, topics: ${topics}).${graph_note} Fill in three sections: (1) ## What happened — 1-2 sentences on the task; (2) ## Decisions — 3-5 caveman bullets, the *why*; (3) ## What to pick up next — open threads or follow-ups. Keep the whole file under 50 lines."}
 JSON
 exit 0
