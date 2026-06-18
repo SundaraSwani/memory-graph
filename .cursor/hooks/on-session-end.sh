@@ -55,9 +55,10 @@ existing=$(ls "$REPO_ROOT/sessions/${today}"-*.md 2>/dev/null | wc -l | tr -d ' 
 session_num=$((existing + 1))
 session_file="sessions/${today}-${session_num}.md"
 
-# Skip if this session file already exists and has decisions written
+# Skip if this session file already exists and has decisions written.
+# Use "^- " (dash + space) to match bullet points only — avoids matching YAML "---" delimiters.
 if [ -f "$REPO_ROOT/$session_file" ]; then
-  has_decisions=$(grep -c "^-" "$REPO_ROOT/$session_file" 2>/dev/null || echo 0)
+  has_decisions=$(grep -c "^- " "$REPO_ROOT/$session_file" 2>/dev/null || echo 0)
   if [ "$has_decisions" -gt 0 ]; then
     printf '{}'
     exit 0
