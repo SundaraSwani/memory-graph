@@ -16,6 +16,13 @@ for f in \
   .cursor/rules/sdlc.mdc \
   post-commit.sh \
   setup \
+  .agents/skills/semantic-compress/SKILL.md \
+  .memory-graph/ollama.example.yaml \
+  .cursor/hooks/semantic-compress-ollama.py \
+  scripts/enable-semantic-auto.sh \
+  scripts/enable-semantic-ollama.sh \
+  scripts/check-ollama.sh \
+  docs/cheat-sheet.md \
   scripts/test.sh \
   scripts/test-compress-sandbox.sh; do
   [ -f "$f" ] || fail "missing $f"
@@ -30,16 +37,23 @@ for f in \
   setup \
   scripts/test.sh \
   scripts/test-static.sh \
-  scripts/test-compress-sandbox.sh; do
+  scripts/test-compress-sandbox.sh \
+  scripts/check-ollama.sh \
+  scripts/enable-semantic-ollama.sh; do
   [ -f "$f" ] && bash -n "$f" || fail "bash -n $f"
 done
 
 echo "== static: python syntax =="
 python3 -m py_compile .cursor/hooks/compress-memory.py
+python3 -m py_compile .cursor/hooks/semantic-compress-ollama.py
 
 echo "== static: hook contract =="
+if grep -v '^[[:space:]]*#' .cursor/hooks/on-session-end.sh | grep -q 'Fill in three sections'; then
+  fail "on-session-end.sh must not emit session-capture followup (extra agent turns)"
+fi
 if grep -v '^[[:space:]]*#' .cursor/hooks/on-session-end.sh | grep -q 'followup_message'; then
-  fail "on-session-end.sh must not emit followup_message (extra agent turns)"
+  grep -q '_maybe_semantic_followup' .cursor/hooks/on-session-end.sh || \
+    fail "followup_message only allowed for opt-in semantic auto (_maybe_semantic_followup)"
 fi
 grep -q 'alwaysApply: false' .cursor/rules/sdlc.mdc || \
   fail "sdlc.mdc must be opt-in (alwaysApply: false)"
@@ -47,5 +61,7 @@ grep -q 'alwaysApply: true' .cursor/rules/main.mdc || \
   fail "main.mdc must stay always-on (alwaysApply: true)"
 grep -q "compress-memory.py" .cursor/hooks/on-session-end.sh || \
   fail "on-session-end.sh must invoke compress-memory.py"
+grep -q '_maybe_semantic_ollama' .cursor/hooks/on-session-end.sh || \
+  fail "on-session-end.sh must support optional Ollama semantic compress"
 
 echo "OK — static checks passed"

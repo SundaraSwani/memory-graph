@@ -20,3 +20,12 @@ graphify-out/.needs_update
 
 # OS
 .DS_Store
+
+.memory-graph/ollama.yaml
+!.memory-graph/ollama.example.yaml
+
+# memory-graph runtime (local)
+memory/.semantic-pending
+memory/.semantic-ollama-status
+memory/.semantic-ollama-last-error
+.memory-graph-semantic-auto

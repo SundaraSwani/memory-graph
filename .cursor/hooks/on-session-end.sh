@@ -11,7 +11,9 @@
 #   5. Appends a row to memory.md index
 #   6. Runs graphify --update in background if code files changed (AST-only, no LLM)
 #   7. Syncs god nodes into main.mdc from the refreshed graph
-#   8. Exits silently — no followup_message (avoids extra agent turns)
+#   8. Compresses memory → memory/state.yaml on every file-changing stop (daily archive)
+#   9. Optionally triggers semantic-compress via followup when auto enabled + caps hit
+#  10. Exits silently — no followup unless semantic auto (avoids extra turns otherwise)
 
 set -uo pipefail
 
@@ -19,6 +21,64 @@ _input=$(cat)
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$REPO_ROOT"
+
+_semantic_sync_needed() {
+  [[ "${MEMORY_SEMANTIC_AUTO:-}" == "1" ]] && return 0
+  [[ -f "$REPO_ROOT/.memory-graph-semantic-auto" ]] && return 0
+  [[ -f "$REPO_ROOT/.memory-graph/ollama.yaml" ]] && \
+    grep -qE '^enabled:[[:space:]]*true' "$REPO_ROOT/.memory-graph/ollama.yaml" 2>/dev/null && return 0
+  return 1
+}
+
+_run_memory_compress() {
+  local script="$REPO_ROOT/.cursor/hooks/compress-memory.py"
+  [[ -f "$script" ]] || return 0
+  if _semantic_sync_needed; then
+    REPO_ROOT="$REPO_ROOT" python3 "$script" >/dev/null 2>&1 || true
+  else
+    ( REPO_ROOT="$REPO_ROOT" python3 "$script" > /dev/null 2>&1 ) &
+  fi
+}
+
+_maybe_semantic_ollama() {
+  local cfg="$REPO_ROOT/.memory-graph/ollama.yaml"
+  local ollama_py="$REPO_ROOT/.cursor/hooks/semantic-compress-ollama.py"
+  [[ -f "$cfg" && -f "$ollama_py" ]] || return 1
+  grep -qE '^enabled:[[:space:]]*true' "$cfg" 2>/dev/null || return 1
+  [[ -f "$REPO_ROOT/memory/.semantic-pending" ]] || return 1
+  if REPO_ROOT="$REPO_ROOT" python3 "$ollama_py" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+_maybe_semantic_followup() {
+  # Skip agent followup if Ollama handled compression this stop
+  [[ -f "$REPO_ROOT/memory/.semantic-pending" ]] || return 1
+  [[ "${MEMORY_SEMANTIC_AUTO:-}" == "1" || -f "$REPO_ROOT/.memory-graph-semantic-auto" ]] || return 1
+
+  local pending="$REPO_ROOT/memory/.semantic-pending"
+  [[ -f "$pending" ]] || return 1
+
+  local reasons
+  reasons=$(grep '^  - ' "$pending" 2>/dev/null | head -3 | tr '\n' ' ' | sed 's/  - //g')
+
+  cat <<JSON
+{"followup_message": "Structural memory is full (${reasons}). Run the semantic-compress skill: distill \`memory/state.yaml\` + \`sessions/archive/\` into ≤15 lines in \`memory/state.yaml\`, drop resolved \`open\` items, then delete \`memory/.semantic-pending\` and write today's date to \`memory/.semantic-last-run\`. One pass only."}
+JSON
+  exit 0
+}
+
+_finish() {
+  _run_memory_compress
+  if _maybe_semantic_ollama; then
+    printf '{}'
+    exit 0
+  fi
+  _maybe_semantic_followup
+  printf '{}'
+  exit 0
+}
 
 # ── 1. Loop guard — only fire once per chat, only on clean completion ───────
 if command -v jq >/dev/null 2>&1; then
@@ -124,8 +184,7 @@ if [ "$file_count" -lt 3 ] && [ -z "$god_nodes_hit" ]; then
     PYTHON=$(cat "$REPO_ROOT/graphify-out/.graphify_python")
     ( "$PYTHON" -m graphify update . > /dev/null 2>&1 ) &
   fi
-  printf '{}'
-  exit 0
+  _finish
 fi
 
 # ── 5. Build session file path (YYYY-MM-DD-N.md — N resets each day) ────────
@@ -141,8 +200,7 @@ session_file="sessions/${today}-${session_num}.md"
 if [ -f "$REPO_ROOT/$session_file" ]; then
   has_context=$(grep -E '^context: ".+"' "$REPO_ROOT/$session_file" 2>/dev/null | wc -l | tr -d ' ') || has_context=0
   if [ "$has_context" -gt 0 ]; then
-    printf '{}'
-    exit 0
+    _finish
   fi
 fi
 
@@ -302,11 +360,4 @@ if command -v gstack-context-save >/dev/null 2>&1; then
   (gstack-context-save > /dev/null 2>&1 ) &
 fi
 
-# ── 11. Compress memory (rollup → memory/state.yaml, archive old sessions) ───
-COMPRESS="$REPO_ROOT/.cursor/hooks/compress-memory.py"
-if [ -f "$COMPRESS" ]; then
-  ( REPO_ROOT="$REPO_ROOT" python3 "$COMPRESS" > /dev/null 2>&1 ) &
-fi
-
-printf '{}'
-exit 0
+_finish

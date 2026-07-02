@@ -5,6 +5,7 @@ set -euo pipefail
 unset MEMORY_COMPRESS_VERBOSE MEMORY_OPEN_MAX MEMORY_ARCHIVE_DAYS REPO_ROOT
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+TODAY=$(date +%Y-%m-%d)
 SANDBOX=$(mktemp -d /tmp/memory-graph-test-XXXXXX)
 HOOK_DIR=""
 HOOK2=""
@@ -35,9 +36,9 @@ god_nodes_touched: []
 - Archived legacy note.
 EOF
 
-cat > "$SANDBOX/sessions/2026-07-01-1.md" <<'EOF'
+cat > "$SANDBOX/sessions/${TODAY}-1.md" <<EOF
 ---
-date: 2026-07-01
+date: ${TODAY}
 session: 1
 open:
   - "active task"
@@ -101,16 +102,30 @@ sleep 1
 assert "$(count_files "$HOOK3/sessions" '*.md')" "1" "3-file change creates session"
 test -f "$HOOK3/memory/state.yaml" || { echo "FAIL: hook did not produce state.yaml"; exit 1; }
 
-# Hook: 1 file → skipped
+# Hook: 1 file → no new session, but compress still refreshes state.yaml
 HOOK2=$(mktemp -d /tmp/memory-graph-hook2-XXXXXX)
 cp -R "$ROOT/.cursor" "$HOOK2/"
 cp "$ROOT/memory.md" "$HOOK2/"
-mkdir -p "$HOOK2/src"
+mkdir -p "$HOOK2/src" "$HOOK2/sessions" "$HOOK2/memory"
+cat > "$HOOK2/sessions/2026-06-01-1.md" <<'EOF'
+---
+date: 2026-06-01
+session: 1
+open:
+  - "seed task from prior session"
+blocked: []
+context: "carry forward"
+god_nodes_touched: []
+---
+EOF
 cd "$HOOK2"
 git init -q && git config user.email "t@t.com" && git config user.name "T"
 echo "x" > src/a.go && git add . && git commit -q -m "init"
 echo "y" >> src/a.go
 printf '{"loop_count":0,"status":"completed"}\n' | bash .cursor/hooks/on-session-end.sh >/dev/null
-assert "$(count_files "$HOOK2/sessions" '*.md')" "0" "single-file change skipped"
+sleep 1
+assert "$(count_files "$HOOK2/sessions" '*.md')" "0" "single-file change skipped (no new session today)"
+grep -q "seed task from prior session" "$HOOK2/memory/state.yaml" || \
+  { echo "FAIL: low-signal stop did not compress existing sessions"; exit 1; }
 
 echo "OK — all sandbox assertions passed"

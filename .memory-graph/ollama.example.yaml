@@ -1,0 +1,16 @@
+# Per-repo Ollama config for semantic memory compression.
+# Copy to ollama.yaml and set enabled: true, or run: bash scripts/enable-semantic-ollama.sh
+
+enabled: false
+
+# Ollama server (default local install)
+host: http://127.0.0.1:11434
+
+# Model must already be pulled: ollama pull llama3.2:3b
+model: llama3.2:3b
+
+# Max characters from archive files sent to the model (token control)
+max_archive_chars: 12000
+
+# Request timeout seconds
+timeout: 120

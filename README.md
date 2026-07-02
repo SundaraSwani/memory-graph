@@ -1,86 +1,60 @@
 # memory-graph
 
-Give any repo a persistent brain that survives agent sessions.
+Give any repo a persistent brain that survives agent sessions — without bloating every Cursor turn.
 
-Three things it does:
-1. **`main.mdc`** — a living AI brief always loaded by Cursor. Populated by graphify with architecture, god nodes, and community structure. The agent reads this before touching anything.
-2. **Session memory** — after every agent stop **where at least one file was changed**, a hook creates `sessions/YYYY-MM-DD-N.md`. You append caveman-style "why" bullets. `memory.md` is the index. Pure Q&A sessions with no file changes produce no session file.
-3. **Graph rebuild** — incremental AST update on every agent stop (fast, no LLM). Full rebuild on every `git commit` (via post-commit hook).
+**Design goal:** persistent memory first, token savings second. The agent reads a slim brief + compressed state file, queries the code graph via subagents (not raw `graph.json`), and skips extra hook turns unless you opt in.
 
 ---
 
-## How it works
+## What it does
 
-```mermaid
-flowchart TD
-    A([Agent finishes responding]) -->|Cursor fires 'stop' event| B[on-session-end.sh runs]
-    B --> C{loop_count >= 1\nor status != completed?}
-    C -->|Yes| Z[Exit silently]
-    C -->|No| D{git diff shows\nchanged files?}
-    D -->|No — pure Q&A| Z
-    D -->|Yes| E[Create sessions/YYYY-MM-DD-N.md]
-    E --> F[Append row to memory.md]
-    F --> G{Code files changed?\n.go .ts .py etc}
-    G -->|Yes| H[graphify --update\nin background]
-    G -->|No| I
-    H --> I[Exit silently\nno followup turn]
-    J --> K[(sessions/ + memory.md\nstructured context)]
-
-    style Z fill:#fee2e2,stroke:#fca5a5
-    style K fill:#dcfce7,stroke:#86efac
-```
-
-**Next session:** agent auto-loads slim `main.mdc` (purpose + god nodes), runs graph scout subagent for traversal, and reads `memory.md` / session `context:` fields as needed.
+| Layer | What | Token cost |
+|-------|------|------------|
+| **Brief** | `.cursor/rules/main.mdc` — purpose + god nodes table | ~small, always loaded |
+| **Working memory** | `memory/state.yaml` — open items, context, blocked | Read on demand (~20 lines) |
+| **Sessions** | `sessions/` + `memory.md` index | Written by hook, no followup turn |
+| **Graph** | graphify → `graphify-out/` | Subagent scout per task, not inline |
+| **Compression** | Structural (every stop) + semantic (opt-in) | Structural = free |
 
 ---
 
-## Install (one command, from inside your project)
+## Quick start
 
 ```bash
 cd /your/project
 curl -sL https://github.com/SundaraSwani/memory-graph/archive/refs/heads/main.tar.gz \
   | tar -xz --strip-components=1 && bash setup
+/graphify .    # once — builds graph, populates god nodes in main.mdc
 ```
 
-This extracts `.cursor/`, `CLAUDE.md`, `memory.md`, `sessions/` directly into your project — no wrapper folder. Then `bash setup` configures repo name, installs graphify + gstack, and wires the git post-commit hook.
-Then run `/graphify .` once to build the initial graph and populate `main.mdc`.
+→ **[Cheat sheet](docs/cheat-sheet.md)** for commands, env vars, and troubleshooting.
+
+`setup` installs hooks, rules, graphify, and the post-commit hook. **gstack is opt-in:** `INSTALL_GSTACK=1 bash setup`.
 
 ---
 
-## What gets installed
+## How the session hook works
 
-| File | What it does |
-|------|-------------|
-| `.cursor/rules/main.mdc` | AI brief — always loaded by Cursor (`alwaysApply: true`) |
-| `.cursor/hooks.json` | Registers `on-session-end.sh` on the Cursor `stop` event |
-| `.cursor/hooks/on-session-end.sh` | Creates session file, updates memory.md, runs graphify, prompts agent |
-| `CLAUDE.md` | Points Claude Code to `main.mdc` |
-| `memory.md` | Index of all sessions |
-| `sessions/` | Per-session decision logs |
-| `post-commit.sh` | Full graphify rebuild — installed to `.git/hooks/post-commit` |
+On every agent **stop** (when git-tracked files changed):
 
----
+1. **Smart gate** — skip session file if fewer than 3 files changed and no god-node blast radius
+2. **Session file** — structured YAML frontmatter only (no extra agent turn)
+3. **Structural compress** — rollup → `memory/state.yaml`, archive prior days
+4. **Semantic compress** — only if enabled and caps hit (see below)
+5. **Graphify AST update** — background, no LLM (when code files changed)
 
-## How sessions work
-
-The hook fires at agent stop, checks `git diff` (staged + unstaged), and **exits silently** if nothing changed or the change is low-signal.
-
-**Skipped (no session file):**
-- Pure Q&A (no file changes)
-- Changes only under `.cursor/`, `sessions/`, `memory.md`, `graphify-out/`
-- Fewer than 3 files changed **and** no HIGH/CRITICAL god node in blast radius
-
-**When a session is created**, the hook writes structured YAML only — no extra agent turn:
+**Never creates a session for:** pure Q&A, edits under `.cursor/`, `sessions/`, `memory.md`, `graphify-out/`.
 
 ```yaml
+# sessions/2026-07-02-1.md — example
 ---
-date: 2026-06-17
+date: 2026-07-02
 time: 14:32
 session: 1
-topics: "src/auth, src/db"
+topics: "app/campaigns, app/signup"
 scope:
-  - src/auth.ts
-  - src/db.ts
+  - app/campaigns.go
+  - app/signup.go
 god_nodes_touched: []
 open: []
 blocked: []
@@ -89,78 +63,195 @@ facts: []
 ---
 ```
 
-The agent may append `context:` and `open:` **inline in the same turn** if the next session needs to know something git diff won't show. No prose "Decisions" sections. Add `facts:` only when graph scout flagged HIGH/CRITICAL nodes.
-
-`memory.md` index row is added automatically.
-
-> **Note:** If `context:` is already filled, the hook won't overwrite that session file.
+The agent may fill `context:` and `open:` **in the same turn** — one line each, not prose essays. Git diff covers *what* changed; memory covers *what's still open*.
 
 ---
 
-## Memory compression
+## Memory tiers (structural compression)
 
-Three tiers — hot / warm / cold — so agents read ~20 lines instead of 50 session files:
+Runs automatically on every file-changing stop and on `git commit`. **No LLM.**
 
-| Tier | File | What the agent reads |
-|------|------|----------------------|
+| Tier | Location | Contents |
+|------|----------|----------|
 | **Hot** | `memory/state.yaml` | Merged `open`, `blocked`, `recent_context`, `god_nodes_recent` |
-| **Warm** | `sessions/*.md` | Last 14 days of per-session YAML |
-| **Cold** | `sessions/archive/YYYY-MM.yaml` | Older sessions rolled up by month |
-
-`compress-memory.py` runs automatically after each session hook and on `git commit`. **No LLM** — deterministic merge only.
+| **Warm** | `sessions/*.md` | Today's session files |
+| **Cold** | `sessions/archive/YYYY-MM.yaml` | Prior days (archived daily by default) |
+| **Index** | `memory.md` | Last 30 sessions (trimmed automatically) |
 
 ```bash
 # Manual run
 python3 .cursor/hooks/compress-memory.py
 
-# Tune retention
-MEMORY_ARCHIVE_DAYS=7 MEMORY_INDEX_KEEP=20 python3 .cursor/hooks/compress-memory.py
+# Keep session files for 14 days instead of daily archive
+MEMORY_ARCHIVE_MODE=age MEMORY_ARCHIVE_DAYS=14 python3 .cursor/hooks/compress-memory.py
 ```
 
-Optional **LLM compression** (not built-in): run a monthly subagent that reads `sessions/archive/` and writes 5 lines to `memory/state.yaml` — use only if deterministic rollup loses too much signal.
-
-**Sandbox test** (isolated `/tmp` dirs, no network, no LLM):
-
-```bash
-bash scripts/test.sh              # full suite (static + sandbox)
-bash scripts/test-static.sh       # fast syntax/contract checks only
-bash scripts/test-compress-sandbox.sh
-```
-
-**Before `git push`** — install the pre-push hook (memory-graph repo development):
-
-```bash
-bash scripts/install-dev-hooks.sh
-```
-
-This blocks push if tests fail. Bypass only when intentional: `git push --no-verify`.
+When lists hit their caps (`open` ≥ 10, etc.), the hook writes `memory/.semantic-pending` — your signal to run semantic compression (below).
 
 ---
 
+## Semantic compression (optional, per repo)
+
+Structural merge is mechanical — it can't drop stale items or summarize. **Semantic compression** distills memory when caps are hit.
+
+**Default: off.** Each git repo opts in independently. Other repos on your machine are unaffected.
+
+### Option A — Local Ollama (recommended)
+
+Uses your machine. **No Cursor agent tokens.**
+
+**1. Install Ollama** (one-time, system-wide)
+
+```bash
+# https://ollama.com/download
+ollama serve
+ollama pull llama3.2:3b
+```
+
+**2. Enable for this repo**
+
+```bash
+bash scripts/enable-semantic-ollama.sh
+```
+
+Creates `.memory-graph/ollama.yaml` (gitignored). Example template is committed at `.memory-graph/ollama.example.yaml`.
+
+**3. Verify**
+
+```bash
+bash scripts/check-ollama.sh
+```
+
+**What happens when enabled**
+
+```
+Structural caps hit → memory/.semantic-pending
+    → hook calls semantic-compress-ollama.py
+    → Ollama rewrites memory/state.yaml (≤15 lines)
+    → clears pending, no Cursor followup
+```
+
+**Status files**
+
+| File | Purpose |
+|------|---------|
+| `memory/.semantic-ollama-status` | Last run: ok / message |
+| `memory/.semantic-ollama-last-error` | Why Ollama failed (server down, model missing, bad output) |
+
+**Config** (`.memory-graph/ollama.yaml`)
+
+```yaml
+enabled: true
+host: http://127.0.0.1:11434
+model: llama3.2:3b          # must match: ollama pull <model>
+max_archive_chars: 12000
+timeout: 120
+```
+
+**Disable for this repo:** `enabled: false` in config, or `rm .memory-graph/ollama.yaml`.
+
+---
+
+### Option B — Cursor agent
+
+Uses the `semantic-compress` skill via a one-time hook followup when caps hit. Costs agent tokens.
+
+```bash
+bash scripts/enable-semantic-auto.sh
+```
+
+Only use if you don't have Ollama. Don't enable both unless you want Ollama first with agent as fallback.
+
+**Manual check**
+
+```bash
+python3 .cursor/hooks/compress-memory.py --check-semantic   # exit 2 if pending
+```
+
+---
+
+### Which option should I use?
+
+| | Ollama | Cursor agent |
+|---|--------|--------------|
+| **Cost** | Free (local GPU/CPU) | Cursor tokens |
+| **Setup** | Install Ollama + enable script | One enable script |
+| **Privacy** | Stays on your machine | Cloud model |
+| **Quality** | Depends on model size | Usually higher |
+
+---
+
+## Graph traversal (graph scout)
+
+Do **not** load `graphify-out/graph.json` into chat. Instead:
+
+1. **Scout subagent** (every task) — returns ~500 token summary
+2. **Drill subagent** (if HIGH/CRITICAL god node) — blast radius, callers
+
+See `.cursor/rules/main.mdc` and `.agents/skills/graph-scout/SKILL.md`.
+
 | Trigger | What runs | LLM? |
 |---------|-----------|------|
-| Agent stop (code files changed) | Incremental AST update | No |
-| `git commit` | Full `--update` rebuild | Only for new docs/images |
+| Agent stop (code changed) | graphify `--update` (AST) | No |
+| `git commit` | graphify full rebuild | Only for new docs/images |
 | Manual `/graphify .` | Full pipeline | Yes |
 
 ---
 
-## gstack integration (optional)
+## What gets installed
 
-Install with `INSTALL_GSTACK=1 bash setup`. gstack adds SDLC skills (`/spec`, `/review`, `/qa`, `/ship`); memory-graph handles structural memory and graph traversal.
+| Path | Purpose |
+|------|---------|
+| `.cursor/rules/main.mdc` | Slim AI brief (always loaded) |
+| `.cursor/rules/sdlc.mdc` | SDLC workflow (opt-in, not always loaded) |
+| `.cursor/hooks/on-session-end.sh` | Session + compress + optional Ollama |
+| `.cursor/hooks/compress-memory.py` | Structural compression |
+| `.cursor/hooks/semantic-compress-ollama.py` | Ollama semantic compression |
+| `.memory-graph/ollama.example.yaml` | Ollama config template |
+| `memory.md` + `sessions/` | Session index and files |
+| `post-commit.sh` | graphify rebuild on commit |
 
-| Layer | Tool | What it stores |
-|-------|------|---------------|
-| Structural | graphify → god nodes in `main.mdc` | Load-bearing nodes + risk |
-| Full architecture | `graphify-out/GRAPH_REPORT.md` | Communities, connections (via graph scout) |
-| Session context | `sessions/` + `memory.md` | Scope, open items, one-line context |
-| Cross-session learnings | gstack `/learn` (opt-in) | Patterns, preferences |
+---
+
+## Testing
+
+Sandbox tests use isolated `/tmp` dirs — no network, no LLM.
+
+```bash
+bash scripts/test.sh                    # full suite
+bash scripts/test-static.sh             # fast syntax/contract checks
+bash scripts/test-compress-sandbox.sh   # compression + hook gates
+```
+
+**memory-graph development only** — block push if tests fail:
+
+```bash
+bash scripts/install-dev-hooks.sh
+git push   # runs tests automatically; use --no-verify to skip
+```
+
+---
+
+## Optional: gstack SDLC
+
+```bash
+INSTALL_GSTACK=1 bash setup
+```
+
+Adds `/spec`, `/review`, `/qa`, `/ship` skills. Not required for memory-graph core. SDLC rule is opt-in — it does not load on every chat by default.
+
+---
 
 ## Requirements
 
-- Cursor (for hooks + `.mdc` rules)
-- Python 3.8+ (for graphify)
-- Git
-- Bun v1.0+ (for gstack browser features)
+- **Cursor** — hooks + `.mdc` rules
+- **Python 3.8+** — graphify + compression scripts
+- **Git**
+- **Ollama** — only if using local semantic compression
+- **Bun 1.0+** — only if using gstack browser features
 
-graphify and gstack are installed automatically by `setup`.
+---
+
+## Docs
+
+- **[Cheat sheet](docs/cheat-sheet.md)** — install, compress, Ollama, graph, tests, troubleshooting

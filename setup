@@ -86,7 +86,12 @@ else
   [ ! -f "$TARGET/post-commit.sh" ] && \
     cp "$SCRIPT_DIR/post-commit.sh" "$TARGET/post-commit.sh" && \
     chmod +x "$TARGET/post-commit.sh"
-  mkdir -p "$TARGET/sessions" "$TARGET/memory"
+  mkdir -p "$TARGET/sessions" "$TARGET/memory" "$TARGET/.memory-graph" "$TARGET/scripts"
+  cp "$SCRIPT_DIR/.memory-graph/ollama.example.yaml" "$TARGET/.memory-graph/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/.cursor/hooks/semantic-compress-ollama.py" "$TARGET/.cursor/hooks/" 2>/dev/null || true
+  chmod +x "$TARGET/.cursor/hooks/semantic-compress-ollama.py" 2>/dev/null || true
+  cp "$SCRIPT_DIR/scripts/check-ollama.sh" "$TARGET/scripts/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/scripts/enable-semantic-ollama.sh" "$TARGET/scripts/" 2>/dev/null || true
   echo "[ok] root files ready"
 
 fi

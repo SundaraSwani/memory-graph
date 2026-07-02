@@ -44,12 +44,21 @@ Stale graph → `/graphify update .` (AST, no LLM) or full `/graphify .` after l
 
 **Working memory (read this first):** `memory/state.yaml` — auto-compressed rollup of open items, recent context, god nodes (~20 lines).
 
-Index → `memory.md` (last 30 sessions). Detail → `sessions/` (YAML frontmatter). History → `sessions/archive/` (monthly, sessions older than 14 days).
+Index → `memory.md` (last 30 sessions). Today → `sessions/` (YAML). Prior days → `sessions/archive/` (compressed daily). Working rollup → `memory/state.yaml` (refreshed every session).
 
 When you finish a turn that changed code, if a session file was created for this chat, append **one line** to `context:` and any `open:` items the **next** agent needs — not prose decisions. Git diff covers *what* changed.
 
 Only add `facts:` bullets when scout flagged HIGH/CRITICAL god nodes.
 
 Manual compress: `python3 .cursor/hooks/compress-memory.py`
+
+Semantic compression (optional, per repo):
+
+| Mode | Enable | Runs when |
+|------|--------|-----------|
+| **Ollama (local LLM)** | `bash scripts/enable-semantic-ollama.sh` | Hook calls Ollama — no Cursor tokens |
+| **Cursor agent** | `bash scripts/enable-semantic-auto.sh` | Hook followup → semantic-compress skill |
+
+Check Ollama: `bash scripts/check-ollama.sh` — status in `memory/.semantic-ollama-status`
 
 Optional SDLC workflow → `.cursor/rules/sdlc.mdc` (invoke for large features, not every chat).
