@@ -1,6 +1,6 @@
 ---
-description: SDLC workflow — grill first, then gstack, then memory capture. Enforced entry point for every build request.
-alwaysApply: true
+description: SDLC workflow for significant features — grill, spec, plan, build, review, QA, ship. Invoke manually; not loaded on every chat.
+alwaysApply: false
 ---
 
 # SDLC Workflow

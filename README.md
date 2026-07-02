@@ -23,15 +23,14 @@ flowchart TD
     F --> G{Code files changed?\n.go .ts .py etc}
     G -->|Yes| H[graphify --update\nin background]
     G -->|No| I
-    H --> I[Return followup_message\nto Cursor]
-    I --> J[Agent fills in\nWhat happened · Decisions\nWhat to pick up next]
-    J --> K[(sessions/ + memory.md\npersistent memory)]
+    H --> I[Exit silently\nno followup turn]
+    J --> K[(sessions/ + memory.md\nstructured context)]
 
     style Z fill:#fee2e2,stroke:#fca5a5
     style K fill:#dcfce7,stroke:#86efac
 ```
 
-**Next session:** agent auto-loads `main.mdc` (god nodes + architecture) and scans `memory.md` to know what was decided before starting.
+**Next session:** agent auto-loads slim `main.mdc` (purpose + god nodes), runs graph scout subagent for traversal, and reads `memory.md` / session `context:` fields as needed.
 
 ---
 
@@ -64,45 +63,79 @@ Then run `/graphify .` once to build the initial graph and populate `main.mdc`.
 
 ## How sessions work
 
-The hook fires at agent stop, checks `git diff` (staged + unstaged), and **exits silently if nothing changed**. Only sessions where the agent modified files get a session log.
+The hook fires at agent stop, checks `git diff` (staged + unstaged), and **exits silently** if nothing changed or the change is low-signal.
 
-When files did change:
+**Skipped (no session file):**
+- Pure Q&A (no file changes)
+- Changes only under `.cursor/`, `sessions/`, `memory.md`, `graphify-out/`
+- Fewer than 3 files changed **and** no HIGH/CRITICAL god node in blast radius
 
-1. Hook creates `sessions/2026-06-17-1.md` (date + incrementing number per day):
-   ```yaml
-   ---
-   date: 2026-06-17
-   time: 14:32
-   session: 1
-   topics: "src/auth.ts, src/db.ts"
-   files_changed: 2
-   files:
-     - src/auth.ts
-     - src/db.ts
-   god_nodes_touched: []
-   ---
-   ```
-2. Cursor injects a follow-up asking the agent to fill in three sections:
-   ```markdown
-   ## What happened
-   Added JWT auth. Replaced session middleware.
+**When a session is created**, the hook writes structured YAML only — no extra agent turn:
 
-   ## Decisions
-   - JWT not sessions. Stateless. Simpler.
-   - auth.ts now god node. Everything touches it.
-   - Refresh token deferred. Ship first.
+```yaml
+---
+date: 2026-06-17
+time: 14:32
+session: 1
+topics: "src/auth, src/db"
+scope:
+  - src/auth.ts
+  - src/db.ts
+god_nodes_touched: []
+open: []
+blocked: []
+context: ""
+facts: []
+---
+```
 
-   ## What to pick up next
-   - Wire refresh token endpoint
-   - Add token expiry tests
-   ```
-3. `memory.md` index row added automatically.
+The agent may append `context:` and `open:` **inline in the same turn** if the next session needs to know something git diff won't show. No prose "Decisions" sections. Add `facts:` only when graph scout flagged HIGH/CRITICAL nodes.
 
-> **Note:** If the session file already exists and has bullet-point decisions written, the hook skips — re-running the agent won't overwrite your notes.
+`memory.md` index row is added automatically.
+
+> **Note:** If `context:` is already filled, the hook won't overwrite that session file.
 
 ---
 
-## How the graph stays fresh
+## Memory compression
+
+Three tiers — hot / warm / cold — so agents read ~20 lines instead of 50 session files:
+
+| Tier | File | What the agent reads |
+|------|------|----------------------|
+| **Hot** | `memory/state.yaml` | Merged `open`, `blocked`, `recent_context`, `god_nodes_recent` |
+| **Warm** | `sessions/*.md` | Last 14 days of per-session YAML |
+| **Cold** | `sessions/archive/YYYY-MM.yaml` | Older sessions rolled up by month |
+
+`compress-memory.py` runs automatically after each session hook and on `git commit`. **No LLM** — deterministic merge only.
+
+```bash
+# Manual run
+python3 .cursor/hooks/compress-memory.py
+
+# Tune retention
+MEMORY_ARCHIVE_DAYS=7 MEMORY_INDEX_KEEP=20 python3 .cursor/hooks/compress-memory.py
+```
+
+Optional **LLM compression** (not built-in): run a monthly subagent that reads `sessions/archive/` and writes 5 lines to `memory/state.yaml` — use only if deterministic rollup loses too much signal.
+
+**Sandbox test** (isolated `/tmp` dirs, no network, no LLM):
+
+```bash
+bash scripts/test.sh              # full suite (static + sandbox)
+bash scripts/test-static.sh       # fast syntax/contract checks only
+bash scripts/test-compress-sandbox.sh
+```
+
+**Before `git push`** — install the pre-push hook (memory-graph repo development):
+
+```bash
+bash scripts/install-dev-hooks.sh
+```
+
+This blocks push if tests fail. Bypass only when intentional: `git push --no-verify`.
+
+---
 
 | Trigger | What runs | LLM? |
 |---------|-----------|------|
@@ -112,21 +145,16 @@ When files did change:
 
 ---
 
-## gstack integration
+## gstack integration (optional)
 
-memory-graph installs [gstack](https://github.com/garrytan/gstack) automatically. gstack handles the SDLC; memory-graph handles structural understanding. They are complementary layers:
+Install with `INSTALL_GSTACK=1 bash setup`. gstack adds SDLC skills (`/spec`, `/review`, `/qa`, `/ship`); memory-graph handles structural memory and graph traversal.
 
 | Layer | Tool | What it stores |
 |-------|------|---------------|
-| Structural | graphify → `main.mdc` | Architecture, god nodes, community graph |
-| Decisions | `sessions/` + `memory.md` | Per-session "why" logs, indexed |
-| Cross-session learnings | gstack `/learn` | Patterns, pitfalls, preferences |
-| Persistent knowledge | gstack GBrain (opt-in) | Database-backed memory across machines |
-
-The enforced workflow lives in `.cursor/rules/sdlc.mdc`:
-```
-grill-me/grill-with-docs → /spec → /autoplan → build → /review → /qa → /ship → capture
-```
+| Structural | graphify → god nodes in `main.mdc` | Load-bearing nodes + risk |
+| Full architecture | `graphify-out/GRAPH_REPORT.md` | Communities, connections (via graph scout) |
+| Session context | `sessions/` + `memory.md` | Scope, open items, one-line context |
+| Cross-session learnings | gstack `/learn` (opt-in) | Patterns, preferences |
 
 ## Requirements
 

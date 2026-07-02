@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# git pre-push hook — blocks push if memory-graph tests fail.
+# Installed by: bash scripts/install-dev-hooks.sh  (or bash setup in-repo)
+
+set -euo pipefail
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+TEST="$ROOT/scripts/test.sh"
+
+if [ ! -x "$TEST" ] && [ ! -f "$TEST" ]; then
+  echo "pre-push: scripts/test.sh not found — skipping memory-graph tests" >&2
+  exit 0
+fi
+
+echo "pre-push: running memory-graph sandbox tests..."
+if bash "$TEST"; then
+  exit 0
+fi
+
+echo "" >&2
+echo "pre-push: BLOCKED — fix tests or push with: git push --no-verify" >&2
+exit 1

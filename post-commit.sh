@@ -15,3 +15,9 @@ fi
 
 # Run incremental update — only re-extracts changed files
 "$PYTHON" -m graphify . --update 2>/dev/null || true
+
+# Roll up session memory → memory/state.yaml
+COMPRESS="$REPO_ROOT/.cursor/hooks/compress-memory.py"
+if [ -f "$COMPRESS" ]; then
+  REPO_ROOT="$REPO_ROOT" python3 "$COMPRESS" 2>/dev/null || true
+fi

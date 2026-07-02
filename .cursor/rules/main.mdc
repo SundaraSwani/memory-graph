@@ -1,67 +1,55 @@
 ---
-description: Living AI brief for [REPO_NAME]. Read before doing anything.
+description: Living AI brief for [REPO_NAME]. Purpose + god nodes only — keep this file small.
 alwaysApply: true
 ---
 
-# [REPO_NAME] — AI Orientation Brief
+# [REPO_NAME] — AI Brief
 
-> This file is auto-updated by the memory-graph system. Do not edit the God Nodes or Architecture sections by hand — they are rewritten by graphify after each commit. Edit the Purpose section to describe this repo.
+> God Nodes table is auto-updated by graphify after commits. Edit Purpose manually. Full architecture → `graphify-out/GRAPH_REPORT.md` (read via graph scout, not inline).
 
 ---
 
 ## Purpose
 
-<!-- Describe what this repo does. 1-3 sentences. Updated manually. -->
-_Not set. Update this section to describe the repo._
-
----
-
-## Architecture
-
-<!-- Auto-updated by graphify after git commits. Communities and high-level structure. -->
-_Run `/graphify .` to populate this section._
+<!-- 1-3 sentences. What this repo does. -->
+_Not set._
 
 ---
 
 ## God Nodes
 
-<!-- Auto-updated by graphify. Highest-degree nodes in the knowledge graph — touch carefully. -->
+<!-- Auto-updated by graphify. Highest-degree nodes — touch carefully. -->
+<!-- Last updated: never -->
+
 _No graph yet. Run `/graphify .` to build._
+
+> Before editing a god node: spawn a graph drill subagent (see below).
+
+---
+
+## Graph Scout (every task)
+
+Do **not** load `graphify-out/graph.json` into this chat.
+
+1. **Scout subagent (always)** — at task start, spawn a subagent to query the graph for files/concepts in scope. Return only:
+   `{ communities, god_nodes, risk, inbound_callers, recommendation }` — max ~500 tokens.
+2. **Drill subagent (if scout reports HIGH/CRITICAL or >1 community)** — inbound edges and blast radius for flagged nodes. Max depth 2.
+3. Parent agent plans from the summary only.
+
+Stale graph → `/graphify update .` (AST, no LLM) or full `/graphify .` after large changes.
 
 ---
 
 ## Session Memory
 
-Latest sessions (newest first). Full index → `memory.md`. Full logs → `sessions/`.
+**Working memory (read this first):** `memory/state.yaml` — auto-compressed rollup of open items, recent context, god nodes (~20 lines).
 
-<!-- Auto-updated by .cursor/hooks/on-session-end.sh -->
-_No sessions yet._
+Index → `memory.md` (last 30 sessions). Detail → `sessions/` (YAML frontmatter). History → `sessions/archive/` (monthly, sessions older than 14 days).
 
----
+When you finish a turn that changed code, if a session file was created for this chat, append **one line** to `context:` and any `open:` items the **next** agent needs — not prose decisions. Git diff covers *what* changed.
 
-## AI Instructions
+Only add `facts:` bullets when scout flagged HIGH/CRITICAL god nodes.
 
-You are working in a repo with persistent memory and an enforced SDLC workflow.
+Manual compress: `python3 .cursor/hooks/compress-memory.py`
 
-1. **Read this file first.** God Nodes and Architecture show what is load-bearing.
-
-2. **Follow the SDLC workflow** in `.cursor/rules/sdlc.mdc` — grill first, spec, plan, build, review, test, ship, capture. Do not skip phases.
-
-3. **Before answering any question about code or architecture**, traverse the graph first:
-   - Run `/graphify query "<concept or filename>"` to find connected nodes, communities, and risk level.
-   - If the question touches a god node (see table above), always check its neighbours before answering — god nodes have wide blast radius.
-   - If `graphify-out/graph.json` is available, you can also read it directly to reason about communities and edges.
-
-4. **Before you finish any session**, write a `## Decisions` section to the current session file in `sessions/`. The hook creates the file; you fill in the decisions. Caveman style — terse, 3-5 bullets:
-   ```
-   Chose JWT over sessions. Stateless app. Refresh token deferred. auth.ts now god node.
-   ```
-
-5. **If you touch a God Node**, update `god_nodes_touched: []` in the session file's frontmatter.
-
-6. **Memory layers** (read before architectural changes):
-   - `memory.md` — full session index
-   - `sessions/` — per-session "why" logs
-   - `/learn` — gstack's cross-session learnings for this codebase
-
-7. **To query the graph**: `/graphify query "<question>"`. If graph is stale: run `/graphify .`.
+Optional SDLC workflow → `.cursor/rules/sdlc.mdc` (invoke for large features, not every chat).

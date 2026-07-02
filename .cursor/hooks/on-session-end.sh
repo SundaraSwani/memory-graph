@@ -5,12 +5,13 @@
 #
 # What it does:
 #   1. Guards against loops (only fires once per chat, only on clean completion)
-#   2. Detects changed files via git diff (staged + unstaged)
-#   3. Creates sessions/YYYY-MM-DD-N.md with frontmatter + three-section template
-#   4. Appends a row to memory.md index
-#   5. Runs graphify --update in background if code files changed (AST-only, no LLM)
-#   6. Syncs god nodes + stats into main.mdc from the refreshed graph
-#   7. Returns a followup_message asking the agent to fill in its decisions
+#   2. Detects changed files via git diff (staged + unstaged), excluding internal paths
+#   3. Skips low-signal changes (<3 files and no god-node blast radius)
+#   4. Creates sessions/YYYY-MM-DD-N.md with structured YAML frontmatter (no prose template)
+#   5. Appends a row to memory.md index
+#   6. Runs graphify --update in background if code files changed (AST-only, no LLM)
+#   7. Syncs god nodes into main.mdc from the refreshed graph
+#   8. Exits silently — no followup_message (avoids extra agent turns)
 
 set -uo pipefail
 
@@ -33,6 +34,7 @@ fi
 raw_changed=$(
   { git diff --name-only 2>/dev/null; git diff --cached --name-only 2>/dev/null; } \
   | sort -u \
+  | grep -v '^\.cursor/' \
   | grep -v '^sessions/' \
   | grep -v '^memory\.md$' \
   | grep -v '^graphify-out/' \
@@ -40,13 +42,93 @@ raw_changed=$(
   || true
 )
 
-# Exit silently if nothing changed — pure Q&A sessions don't get session files
 if [ -z "$raw_changed" ]; then
   printf '{}'
   exit 0
 fi
 
-# ── 3. Build session file path (YYYY-MM-DD-N.md — N resets each day) ────────
+file_count=$(echo "$raw_changed" | wc -l | tr -d ' ')
+
+# ── 3. Graph impact (for god-node gating + session prefill) ───────────────────
+god_nodes_hit=""
+graph_facts=""
+export CHANGED_FILES="$raw_changed"
+if [ -f "$REPO_ROOT/graphify-out/graph.json" ] && command -v python3 >/dev/null 2>&1; then
+  eval "$(python3 - "$REPO_ROOT/graphify-out/graph.json" <<'PYEOF'
+import json, sys, os, shlex
+from collections import defaultdict, Counter
+
+graph_file = sys.argv[1]
+changed_files = [f.strip() for f in os.environ.get("CHANGED_FILES", "").splitlines() if f.strip()]
+
+god_nodes_hit = []
+facts = []
+
+try:
+    g = json.loads(open(graph_file).read())
+    nodes = g.get("nodes", [])
+    links = g.get("links", g.get("edges", []))
+
+    degree = Counter()
+    for e in links:
+        degree[e.get("source", "")] += 1
+        degree[e.get("target", "")] += 1
+
+    def risk(d):
+        if d >= 200: return "CRITICAL"
+        if d >= 100: return "HIGH"
+        if d >= 60:  return "MEDIUM"
+        return "LOW"
+
+    touched_communities = defaultdict(list)
+    for node in nodes:
+        nid = node.get("id", "")
+        for cf in changed_files:
+            if cf in nid or nid in cf:
+                comm = node.get("community", node.get("group", "?"))
+                label = node.get("label", nid)
+                touched_communities[comm].append(label)
+                r = risk(degree.get(nid, 0))
+                if r in ("CRITICAL", "HIGH"):
+                    god_nodes_hit.append(f"{label} ({r})")
+                break
+
+    for comm, labels in list(touched_communities.items())[:4]:
+        sample = ", ".join(labels[:3])
+        if len(labels) > 3:
+            sample += f" (+{len(labels)-3} more)"
+        facts.append(f"community {comm}: {sample}")
+
+    if god_nodes_hit:
+        facts.insert(0, f"god nodes in blast radius: {', '.join(god_nodes_hit[:5])}")
+
+except Exception:
+    pass
+
+def emit(name, value):
+    if value:
+        print(f"{name}={shlex.quote(value)}")
+
+emit("GOD_NODES_HIT", ", ".join(god_nodes_hit))
+emit("GRAPH_FACTS", "\\n".join(f"- {f}" for f in facts))
+PYEOF
+  )" 2>/dev/null || true
+fi
+
+# ── 4. Smart gate — skip low-signal sessions (<3 files, no god-node hit) ────
+if [ "$file_count" -lt 3 ] && [ -z "$god_nodes_hit" ]; then
+  # Still run graphify AST update in background if code changed, but no session file
+  code_exts='\.py$|\.ts$|\.tsx$|\.js$|\.jsx$|\.go$|\.rs$|\.java$|\.cpp$|\.c$|\.rb$|\.swift$|\.kt$|\.cs$|\.scala$|\.php$'
+  has_code=$(echo "$raw_changed" | grep -E "$code_exts" | head -1 || true)
+  if [ -n "$has_code" ] && [ -f "$REPO_ROOT/graphify-out/.graphify_python" ]; then
+    PYTHON=$(cat "$REPO_ROOT/graphify-out/.graphify_python")
+    ( "$PYTHON" -m graphify update . > /dev/null 2>&1 ) &
+  fi
+  printf '{}'
+  exit 0
+fi
+
+# ── 5. Build session file path (YYYY-MM-DD-N.md — N resets each day) ────────
 today=$(date +%Y-%m-%d)
 now=$(date +%H:%M)
 mkdir -p "$REPO_ROOT/sessions"
@@ -55,21 +137,16 @@ existing=$(ls "$REPO_ROOT/sessions/${today}"-*.md 2>/dev/null | wc -l | tr -d ' 
 session_num=$((existing + 1))
 session_file="sessions/${today}-${session_num}.md"
 
-# Skip if this session file already exists and has decisions written.
-# Use "^- " (dash + space) to match bullet points only — avoids matching YAML "---" delimiters.
+# Skip if session already has context filled
 if [ -f "$REPO_ROOT/$session_file" ]; then
-  has_decisions=$(grep -c "^- " "$REPO_ROOT/$session_file" 2>/dev/null || echo 0)
-  if [ "$has_decisions" -gt 0 ]; then
+  has_context=$(grep -E '^context: ".+"' "$REPO_ROOT/$session_file" 2>/dev/null | wc -l | tr -d ' ') || has_context=0
+  if [ "$has_context" -gt 0 ]; then
     printf '{}'
     exit 0
   fi
 fi
 
-# ── 4. Detect code file changes (for graphify AST update) ───────────────────
-code_exts='\.py$|\.ts$|\.tsx$|\.js$|\.jsx$|\.go$|\.rs$|\.java$|\.cpp$|\.c$|\.rb$|\.swift$|\.kt$|\.cs$|\.scala$|\.php$'
-has_code=$(echo "$raw_changed" | grep -E "$code_exts" | head -1 || true)
-
-# ── 5. Derive topic hints from changed file paths ────────────────────────────
+# ── 6. Derive topic hints ────────────────────────────────────────────────────
 topics=$(echo "$raw_changed" | awk -F'/' '
   {
     if (NF >= 3) label = $2 "/" $3
@@ -88,47 +165,48 @@ topics=$(echo "$raw_changed" | awk -F'/' '
   }
 ' || true)
 
-# ── 6. Write session file ────────────────────────────────────────────────────
-file_count=$(echo "$raw_changed" | wc -l | tr -d ' ')
 files_yaml=$(echo "$raw_changed" | awk '{print "  - " $0}')
 
+# God nodes YAML list
+god_nodes_yaml="  []"
+if [ -n "$god_nodes_hit" ]; then
+  god_nodes_yaml=$(echo "$god_nodes_hit" | awk -F', ' '{print "  - " $1}' | head -5)
+fi
+
+facts_block=""
+if [ -n "$graph_facts" ]; then
+  facts_block="facts:
+$(echo "$graph_facts" | sed 's/^/  /')"
+else
+  facts_block="facts: []"
+fi
+
+# ── 7. Write structured session file (frontmatter only — no prose sections) ─
 cat > "$REPO_ROOT/$session_file" <<TEMPLATE
 ---
 date: ${today}
 time: ${now}
 session: ${session_num}
 topics: "${topics}"
-files_changed: ${file_count}
-files:
+scope:
 ${files_yaml}
-god_nodes_touched: []
+god_nodes_touched:
+${god_nodes_yaml}
+open: []
+blocked: []
+context: ""
+${facts_block}
 ---
-
-## What happened
-
-<!-- 1-2 sentences: what was the task / what changed -->
-
-## Decisions
-
-<!-- Why, not what. 3-5 caveman bullets.
-     - JWT not sessions. Stateless.
-     - Deferred refresh token. Ship first.
--->
-
-## What to pick up next
-
-<!-- Unfinished threads, follow-ups, open questions -->
 TEMPLATE
 
-# ── 7. Append row to memory.md ──────────────────────────────────────────────
+# ── 8. Append row to memory.md ──────────────────────────────────────────────
 new_row="| ${today} ${now} | ${session_num} | ${topics} | ${file_count} files | [view](${session_file}) |"
 
 if ! grep -q "| Date/Time |" "$REPO_ROOT/memory.md" 2>/dev/null; then
   cat > "$REPO_ROOT/memory.md" <<MEMEOF
 # Session Memory Index
 
-> Auto-maintained by memory-graph. Do not edit manually.
-> Full session files live in \`sessions/\`. This file is the index.
+> Auto-maintained by memory-graph. Structured context lives in \`sessions/\` frontmatter.
 
 | Date/Time | Session | Topics | Files | Session File |
 |-----------|---------|--------|-------|--------------|
@@ -138,14 +216,15 @@ else
   echo "$new_row" >> "$REPO_ROOT/memory.md"
 fi
 
-# ── 8. Graphify incremental update + main.mdc sync ───────────────────────────
+# ── 9. Graphify incremental update + main.mdc god-node sync ─────────────────
+code_exts='\.py$|\.ts$|\.tsx$|\.js$|\.jsx$|\.go$|\.rs$|\.java$|\.cpp$|\.c$|\.rb$|\.swift$|\.kt$|\.cs$|\.scala$|\.php$'
+has_code=$(echo "$raw_changed" | grep -E "$code_exts" | head -1 || true)
+
 if [ -n "$has_code" ] && [ -f "$REPO_ROOT/graphify-out/.graphify_python" ]; then
   PYTHON=$(cat "$REPO_ROOT/graphify-out/.graphify_python")
   (
-    # Run AST-only graph update
     "$PYTHON" -m graphify update . > /dev/null 2>&1
 
-    # Sync God Nodes + stats into main.mdc from the refreshed graph.json
     MAIN_MDC="$REPO_ROOT/.cursor/rules/main.mdc"
     GRAPH_JSON="$REPO_ROOT/graphify-out/graph.json"
     if [ -f "$MAIN_MDC" ] && [ -f "$GRAPH_JSON" ]; then
@@ -161,11 +240,6 @@ try:
     g = json.loads(graph_path.read_text())
     nodes = g.get("nodes", [])
     links = g.get("links", g.get("edges", []))
-
-    comm_ids = {n.get("community", n.get("group", -1)) for n in nodes if n.get("community", n.get("group")) is not None}
-    n_communities = len(comm_ids)
-    n_nodes = len(nodes)
-    n_edges = len(links)
 
     degree = Counter()
     for e in links:
@@ -191,16 +265,28 @@ try:
     mdc = mdc_path.read_text()
 
     mdc = re.sub(
-        r"(<!-- Last updated: )[\d-]+([^\d\n]+\d+ files[^\d\n]+)\d+( nodes[^\d\n]+)\d+( edges[^\d\n]+)\d+( communities -->)",
-        lambda m: f"{m.group(1)}{ts}{m.group(2)}{n_nodes}{m.group(3)}{n_edges}{m.group(4)}{n_communities}{m.group(5)}",
-        mdc
+        r"(<!-- Last updated: )[^-\n]+",
+        f"\\g<1>{ts}",
+        mdc,
+        count=1,
     )
 
     mdc = re.sub(
-        r"(<!-- Last updated: )[\d-]+( -->)\n\n\|.*?\n\n(> Before touching)",
-        f"\\g<1>{ts}\\g<2>\n\n{god_table}\n\n\\g<3>",
-        mdc, flags=re.DOTALL
+        r"(<!-- Last updated: [^\n]+ -->)\n\n(?:[^\n#].*?\n\n)?(> Before editing|_No graph yet)",
+        f"\\g<1>\n\n{god_table}\n\n\\g<2>",
+        mdc,
+        flags=re.DOTALL,
+        count=1,
     )
+
+    if "_No graph yet" not in mdc and "> Before editing" not in mdc:
+        mdc = re.sub(
+            r"(## God Nodes\n\n<!-- Auto-updated by graphify[^\n]* -->\n<!-- Last updated: [^\n]+ -->)\n\n.*?(?=\n\n> Before editing|\n\n---|\n\n## |\Z)",
+            f"\\g<1>\n\n{god_table}",
+            mdc,
+            flags=re.DOTALL,
+            count=1,
+        )
 
     mdc_path.write_text(mdc)
 except Exception as e:
@@ -211,80 +297,16 @@ PYEOF
   ) &
 fi
 
-# ── 9. gstack context-save (if available) ────────────────────────────────────
+# ── 10. Optional gstack context-save (no followup) ───────────────────────────
 if command -v gstack-context-save >/dev/null 2>&1; then
-  (gstack-context-save > /dev/null 2>&1) &
+  (gstack-context-save > /dev/null 2>&1 ) &
 fi
 
-# ── 10. Build graph impact summary for affected files ────────────────────────
-graph_impact=""
-export CHANGED_FILES="$raw_changed"
-if [ -f "$REPO_ROOT/graphify-out/graph.json" ] && command -v python3 >/dev/null 2>&1; then
-  graph_impact=$(python3 - "$REPO_ROOT/graphify-out/graph.json" "$REPO_ROOT" <<'PYEOF'
-import json, sys, os
-from collections import defaultdict, Counter
-
-graph_file = sys.argv[1]
-changed_files = [f.strip() for f in os.environ.get("CHANGED_FILES", "").splitlines() if f.strip()]
-
-try:
-    g = json.loads(open(graph_file).read())
-    nodes = g.get("nodes", [])
-    links = g.get("links", g.get("edges", []))
-
-    degree = Counter()
-    for e in links:
-        degree[e.get("source", "")] += 1
-        degree[e.get("target", "")] += 1
-
-    def risk(d):
-        if d >= 200: return "CRITICAL"
-        if d >= 100: return "HIGH"
-        if d >= 60:  return "MEDIUM"
-        return ""
-
-    touched_communities = defaultdict(list)
-    god_nodes_hit = []
-    for node in nodes:
-        nid = node.get("id", "")
-        for cf in changed_files:
-            if cf in nid or nid in cf:
-                comm = node.get("community", node.get("group", "?"))
-                label = node.get("label", nid)
-                touched_communities[comm].append(label)
-                r = risk(degree.get(nid, 0))
-                if r in ("CRITICAL", "HIGH"):
-                    god_nodes_hit.append(f"{label} ({r})")
-                break
-
-    if not touched_communities:
-        print("")
-        sys.exit(0)
-
-    parts = []
-    comm_count = len(touched_communities)
-    parts.append(f"Graph impact: {comm_count} {'community' if comm_count == 1 else 'communities'} touched.")
-    for comm, labels in list(touched_communities.items())[:4]:
-        sample = ", ".join(labels[:3])
-        if len(labels) > 3:
-            sample += f" (+{len(labels)-3} more)"
-        parts.append(f"  • community {comm}: {sample}")
-    if god_nodes_hit:
-        parts.append(f"  ⚠ God nodes in blast radius: {', '.join(god_nodes_hit[:3])}")
-    print("\n".join(parts))
-except Exception:
-    print("")
-PYEOF
-  ) 2>/dev/null || graph_impact=""
+# ── 11. Compress memory (rollup → memory/state.yaml, archive old sessions) ───
+COMPRESS="$REPO_ROOT/.cursor/hooks/compress-memory.py"
+if [ -f "$COMPRESS" ]; then
+  ( REPO_ROOT="$REPO_ROOT" python3 "$COMPRESS" > /dev/null 2>&1 ) &
 fi
 
-# ── 11. Ask agent to fill in the session file ─────────────────────────────────
-graph_note=""
-if [ -n "$graph_impact" ]; then
-  graph_note=" Graph context: ${graph_impact}. Query /graphify before writing decisions if any nodes are CRITICAL or HIGH risk."
-fi
-
-cat <<JSON
-{"followup_message": "Session file created at \`${session_file}\` (${today} ${now}, topics: ${topics}).${graph_note} Fill in three sections: (1) ## What happened — 1-2 sentences on the task; (2) ## Decisions — 3-5 caveman bullets, the *why*; (3) ## What to pick up next — open threads or follow-ups. Keep the whole file under 50 lines."}
-JSON
+printf '{}'
 exit 0

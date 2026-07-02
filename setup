@@ -31,7 +31,16 @@ if [ "$MODE" = "inplace" ]; then
 
   # Fix permissions
   chmod +x "$TARGET/setup" "$TARGET/post-commit.sh" \
-           "$TARGET/.cursor/hooks/on-session-end.sh" 2>/dev/null || true
+           "$TARGET/.cursor/hooks/on-session-end.sh" \
+           "$TARGET/.cursor/hooks/compress-memory.py" \
+           "$TARGET/scripts/test.sh" \
+           "$TARGET/scripts/test-static.sh" \
+           "$TARGET/scripts/test-compress-sandbox.sh" 2>/dev/null || true
+
+  # Dev hooks: pre-push runs sandbox tests before git push
+  if [ -f "$TARGET/scripts/install-dev-hooks.sh" ]; then
+    bash "$TARGET/scripts/install-dev-hooks.sh" 2>/dev/null || true
+  fi
 
   # Replace [REPO_NAME] placeholder in rules and CLAUDE.md
   for f in \
@@ -49,6 +58,8 @@ else
   mkdir -p "$TARGET/.cursor/hooks"
   cp "$SCRIPT_DIR/.cursor/hooks/on-session-end.sh" "$TARGET/.cursor/hooks/"
   chmod +x "$TARGET/.cursor/hooks/on-session-end.sh"
+  cp "$SCRIPT_DIR/.cursor/hooks/compress-memory.py" "$TARGET/.cursor/hooks/"
+  chmod +x "$TARGET/.cursor/hooks/compress-memory.py"
 
   if [ ! -f "$TARGET/.cursor/hooks.json" ]; then
     cp "$SCRIPT_DIR/.cursor/hooks.json" "$TARGET/.cursor/"
@@ -75,7 +86,7 @@ else
   [ ! -f "$TARGET/post-commit.sh" ] && \
     cp "$SCRIPT_DIR/post-commit.sh" "$TARGET/post-commit.sh" && \
     chmod +x "$TARGET/post-commit.sh"
-  mkdir -p "$TARGET/sessions"
+  mkdir -p "$TARGET/sessions" "$TARGET/memory"
   echo "[ok] root files ready"
 
 fi
@@ -107,18 +118,22 @@ python3 -c "import graphify" 2>/dev/null || \
   echo "[warn] graphify install failed — run: pip install graphifyy"
 python3 -c "import graphify" 2>/dev/null && echo "[ok] graphify ready" || echo "[warn] graphify not found"
 
-# ── Both modes: gstack ────────────────────────────────────────────────────
+# ── Both modes: gstack (opt-in) ───────────────────────────────────────────
 echo ""
-echo "Checking gstack..."
-GSTACK_DIR="$HOME/.cursor/skills/gstack"
-if [ ! -d "$GSTACK_DIR" ]; then
-  echo "Installing gstack for Cursor..."
-  git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git "$GSTACK_DIR" 2>/dev/null && \
-    (cd "$GSTACK_DIR" && ./setup --host cursor 2>/dev/null) && \
-    echo "[ok] gstack installed" || \
-    echo "[warn] gstack install failed — run: git clone https://github.com/garrytan/gstack.git $GSTACK_DIR"
+if [ "${INSTALL_GSTACK:-}" = "1" ]; then
+  echo "Checking gstack..."
+  GSTACK_DIR="$HOME/.cursor/skills/gstack"
+  if [ ! -d "$GSTACK_DIR" ]; then
+    echo "Installing gstack for Cursor..."
+    git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git "$GSTACK_DIR" 2>/dev/null && \
+      (cd "$GSTACK_DIR" && ./setup --host cursor 2>/dev/null) && \
+      echo "[ok] gstack installed" || \
+      echo "[warn] gstack install failed — run: git clone https://github.com/garrytan/gstack.git $GSTACK_DIR"
+  else
+    echo "[ok] gstack already installed"
+  fi
 else
-  echo "[ok] gstack already installed"
+  echo "[skip] gstack not installed (optional). Run: INSTALL_GSTACK=1 bash setup"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────
@@ -126,6 +141,8 @@ echo ""
 echo "Done. memory-graph active in $TARGET"
 echo ""
 echo "Next:"
-echo "  /graphify .           — build knowledge graph, populate main.mdc"
-echo "  /grill-me             — start any new feature (grill before code)"
-echo "  grill → /spec → /autoplan → build → /review → /qa → /ship"
+echo "  /graphify .              — build knowledge graph, populate god nodes in main.mdc"
+echo "  graph-scout subagent     — query graph without loading it into chat (see main.mdc)"
+echo "  /grill-me                — optional, for new features"
+echo "  INSTALL_GSTACK=1 bash setup  — add gstack SDLC skills (/spec, /review, /qa, /ship)"
+echo "  bash scripts/test.sh         — run sandbox tests before push"

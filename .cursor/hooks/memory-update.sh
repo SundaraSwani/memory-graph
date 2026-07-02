@@ -23,8 +23,8 @@ if [ -z "$ALL_CHANGED" ]; then
   exit 0
 fi
 
-# Skip if only memory-graph internal files changed (sessions, memory.md, graphify-out)
-NON_INTERNAL=$(echo "$ALL_CHANGED" | grep -v '^sessions/' | grep -v '^memory\.md$' | grep -v '^graphify-out/' || true)
+# Skip if only memory-graph internal files changed
+NON_INTERNAL=$(echo "$ALL_CHANGED" | grep -v '^\.cursor/' | grep -v '^sessions/' | grep -v '^memory\.md$' | grep -v '^graphify-out/' || true)
 if [ -z "$NON_INTERNAL" ]; then
   echo '{}'
   exit 0
@@ -74,7 +74,5 @@ fi
 # Append new row to memory.md index
 echo "| $(date +"%Y-%m-%d %H:%M") | $CHANGED_COUNT | [${TIMESTAMP}](sessions/${TIMESTAMP}.md) |" >> "$REPO_ROOT/memory.md"
 
-# Ask agent to write decisions to the session file
-SESSION_REL="sessions/${TIMESTAMP}.md"
-echo "{\"followup_message\": \"Session recorded at \`${SESSION_REL}\`. Before you finish, add a \`## Decisions\` section to that file — caveman style. What was decided, what was deferred, which god nodes were touched. 3-5 bullets max.\"}"
+echo '{}'
 exit 0
