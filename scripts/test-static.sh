@@ -17,6 +17,8 @@ for f in \
   post-commit.sh \
   setup \
   .agents/skills/semantic-compress/SKILL.md \
+  .agents/skills/ship-feature/SKILL.md \
+  .agents/skills/graph-scout/SKILL.md \
   .memory-graph/ollama.example.yaml \
   .cursor/hooks/semantic-compress-ollama.py \
   scripts/enable-semantic-auto.sh \

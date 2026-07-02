@@ -1,196 +1,59 @@
 ---
-description: SDLC workflow for significant features — grill, spec, plan, build, review, QA, ship. Invoke manually; not loaded on every chat.
+description: Opt-in SDLC — use ship-feature for end-to-end work; quick paths for small changes. Not loaded every chat.
 alwaysApply: false
 ---
 
-# SDLC Workflow
+# SDLC (opt-in)
 
-> This is the enforced process for this repo. Do not skip phases. Each phase gates the next.
+Invoke manually (`@sdlc`) or when unsure which workflow to use. **Do not treat this as always-on process.**
 
-## The Loop
+## Pick a path
 
-```
-NEW FEATURE/REQUEST
-       ↓
-   1. GRILL          — reach common ground before touching code
-       ↓
-   2. SPEC           — formalize what was agreed (/spec)
-       ↓
-   3. PLAN           — architecture + design review (/autoplan)
-       ↓
-   4. BUILD          — implement
-       ↓
-   5. REVIEW         — catch bugs before shipping (/review)
-       ↓
-   6. TEST           — verify in browser (/qa)
-       ↓
-   7. SHIP           — PR + tests + docs (/ship)
-       ↓
-   8. CAPTURE        — session file auto-created by hook
-```
+| Situation | What to run |
+|-----------|-------------|
+| **Build / implement / fix end-to-end** | **`ship-feature` skill** — full wave loop (grill → research → code∥test → validate∥guard → comment∥review → memory) |
+| Quick fix, 1–2 files, clear scope | Graph scout (see `main.mdc`) → implement. Skip ship-feature. |
+| Touching a **god node** | Graph scout + drill **before** editing |
+| Need a written spec doc | gstack `/spec` *(optional — `INSTALL_GSTACK=1 bash setup`)* |
+| Browser / deploy QA | gstack `/qa`, `/ship` *(optional)* |
 
 ---
 
-## Phase 1: GRILL (mandatory gate)
+## ship-feature (primary)
 
-**Trigger:** User describes something new to build, or there is no session doc for this feature yet.
+Use when the user says *build this*, *implement X*, *add feature*, *fix and ship*, or any end-to-end request.
 
-**How:** Use `/grill-me` or `/grill-with-docs` to reach common ground before any code is written.
+**Rules:**
+- **Wave 0 (grill) finishes before any sub-agent** — one question at a time, with your recommended answer.
+- **One sub-agent per Task** — parallel agents only within the same wave, in a single message.
+- **Wave 5 memory** — parent writes session notes; memory-graph hook also updates `memory/state.yaml` on stop.
 
-- Ask one question at a time.
-- Provide your recommended answer for each question.
-- Resolve dependencies between decisions one by one.
-- Do NOT proceed to Phase 2 until you have explicit agreement on: (1) what is being built, (2) what is out of scope, (3) why now.
-
-**If user says "just build it" or "skip grilling":** Ask one clarifying question minimum — scope and out-of-scope. Then proceed.
+Full wave prompts → `.agents/skills/ship-feature/SKILL.md`
 
 ---
 
-## Phase 2: SPEC (/spec)
+## memory-graph integration
 
-Turn the grilling outcome into a precise, executable spec.
+| After work | Where it goes |
+|------------|---------------|
+| Open threads, one-line state | `context:` / `open:` in today's `sessions/*.md` |
+| Rolled-up working memory | `memory/state.yaml` *(auto, every file-changing stop)* |
+| God nodes touched | Session frontmatter + graph scout summary |
 
-```
-/spec
-```
+No hook followup for session capture. No prose *Decisions* essays — git diff is *what*; memory is *what's still open*.
 
-- Five phases: why → scope → technical (reads codebase) → draft → file.
-- Blocks below 7/10 quality score.
-- Archives to `.gstack/projects/*/specs/` for recall.
-- `--execute` spawns implementation in a fresh worktree.
-
----
-
-## Phase 3: PLAN (/autoplan)
-
-Run the full review pipeline on the spec before writing code.
-
-**Before running /autoplan**, traverse the graph for every concept in the spec:
-```
-/graphify query "CONCEPT_FROM_SPEC"
-```
-- Identify which communities are touched. Cross-community changes = higher risk.
-- Check if any god node (see `main.mdc`) is in the blast radius. If yes, flag it.
-- Surface surprising connections — graphify often finds non-obvious dependencies.
-
-```
-/autoplan
-```
-
-- Runs CEO → design → eng review automatically.
-- Surfaces only taste decisions for your approval.
-- Writes a design doc that feeds all downstream skills.
+**Before starting a feature:** read `memory/state.yaml` + scan `memory.md`.
 
 ---
 
-## Phase 4: BUILD
+## Graph
 
-Implement against the approved plan. Use `/careful` or `/guard` for production-touching work.
-
-Check the graph before touching god nodes:
-```
-/graphify query "CONCEPT"
-```
-
-God nodes are listed in `main.mdc`. Changes to them ripple everywhere.
+Never load `graphify-out/graph.json` into parent chat. Scout subagent → optional drill if HIGH/CRITICAL. See `main.mdc` and `graph-scout` skill.
 
 ---
 
-## Phase 5: REVIEW (/review)
+## Optional gstack skills
 
-**Before reviewing**, query the graph for every file you changed:
-```
-/graphify query "CHANGED_FILE_OR_FUNCTION"
-```
-- Find all nodes that depend on what you changed (inbound edges = callers, downstream consumers).
-- Any node with CRITICAL or HIGH risk in the god node table needs manual review — don't rely on CI alone.
-- Note communities that were crossed: cross-community changes are the most common source of subtle bugs.
+Only if installed: `/spec` · `/autoplan` · `/review` · `/codex` · `/qa` · `/ship` · `/learn` · `/investigate`
 
-```
-/review
-```
-
-- Finds bugs that pass CI but blow up in production.
-- Auto-fixes obvious issues. Flags completeness gaps.
-- Use `/codex` for an independent second opinion from a different model.
-
----
-
-## Phase 6: TEST (/qa)
-
-**Before QA**, use the graph to build your test scope:
-```
-/graphify query "FEATURE_OR_ENTRYPOINT"
-```
-- Trace downstream from the entry point to find all affected flows.
-- Any god node reachable from your change = must test explicitly, not just happy path.
-- Cross-community paths = integration seams most likely to break — test those boundaries.
-
-```
-/qa
-```
-
-- Opens a real browser, clicks through flows.
-- Auto-generates regression tests for every fix.
-- Use `/qa-only` for a report without code changes.
-
----
-
-## Phase 7: SHIP (/ship)
-
-```
-/ship
-```
-
-- Syncs main, runs tests, audits coverage, opens PR.
-- Auto-invokes `/document-release` to keep docs current.
-- Bootstraps test framework if project has none.
-
----
-
-## Phase 8: CAPTURE (automatic)
-
-The `on-session-end.sh` hook fires automatically at agent stop.
-
-- Creates `sessions/YYYY-MM-DD-N.md` with changed files.
-- Appends row to `memory.md` index.
-- Runs graphify incremental AST update in background.
-
-**Your job after the hook fires:** Append `## Decisions` to the session file. Caveman style. 3-5 bullets. The "why", not the "what".
-
----
-
-## Available gstack skills
-
-```
-/office-hours       start here — reframes the problem before planning
-/spec               vague intent → precise executable spec
-/autoplan           full review pipeline (CEO + design + eng)
-/plan-ceo-review    challenge scope and find the 10-star product
-/plan-eng-review    lock architecture, data flow, diagrams, edge cases
-/plan-design-review rate design dimensions 0-10, interactive
-/review             staff engineer review — bugs that pass CI
-/codex              second opinion from OpenAI Codex (different model)
-/qa                 real browser QA, fixes bugs, generates regression tests
-/ship               sync → test → PR
-/land-and-deploy    merge → CI → verify in production
-/retro              weekly team retro with per-person breakdowns
-/learn              manage what gstack learned — review, prune, export
-/careful            warn before destructive commands
-/guard              /careful + /freeze — max safety for prod work
-/freeze             lock edits to one directory while debugging
-/investigate        root-cause debugging — Iron Law: no fixes without investigation
-/document-release   update all docs to match what just shipped
-```
-
----
-
-## Memory layers (read before architectural changes)
-
-| Layer | What it contains | When to read |
-|-------|-----------------|--------------|
-| `main.mdc` | Architecture + god nodes (graphify) | Always — auto-loaded |
-| `memory.md` | Index of all sessions | Before architectural changes |
-| `sessions/` | Per-session caveman decisions | When you need the "why" for a past choice |
-| `/learn` | gstack's cross-session learnings | Before starting a feature in familiar territory |
-| `graphify-out/GRAPH_REPORT.md` | Full graph audit with surprising connections | Before touching god nodes |
+Not required when `ship-feature` covers the loop.

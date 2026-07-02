@@ -203,7 +203,7 @@ See `.cursor/rules/main.mdc` and `.agents/skills/graph-scout/SKILL.md`.
 | Path | Purpose |
 |------|---------|
 | `.cursor/rules/main.mdc` | Slim AI brief (always loaded) |
-| `.cursor/rules/sdlc.mdc` | SDLC workflow (opt-in, not always loaded) |
+| `.cursor/rules/sdlc.mdc` | Opt-in workflow router (~50 lines) — points to `ship-feature` |
 | `.cursor/hooks/on-session-end.sh` | Session + compress + optional Ollama |
 | `.cursor/hooks/compress-memory.py` | Structural compression |
 | `.cursor/hooks/semantic-compress-ollama.py` | Ollama semantic compression |
@@ -232,13 +232,17 @@ git push   # runs tests automatically; use --no-verify to skip
 
 ---
 
-## Optional: gstack SDLC
+## Optional: gstack + ship-feature
+
+**End-to-end features:** **`ship-feature`** skill — [.agents/skills/ship-feature/SKILL.md](.agents/skills/ship-feature/SKILL.md). Slim router: [sdlc.mdc](.cursor/rules/sdlc.mdc).
+
+**gstack** (optional extras):
 
 ```bash
 INSTALL_GSTACK=1 bash setup
 ```
 
-Adds `/spec`, `/review`, `/qa`, `/ship` skills. Not required for memory-graph core. SDLC rule is opt-in — it does not load on every chat by default.
+Adds `/spec`, `/review`, `/qa`, `/ship` when you need them outside the ship-feature loop.
 
 ---
 

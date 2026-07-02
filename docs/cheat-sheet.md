@@ -201,3 +201,11 @@ cat memory/state.yaml
 # Recent session index
 tail -10 memory.md
 ```
+
+---
+
+## ship-feature (end-to-end)
+
+Use the **`ship-feature`** skill — full prompts in [.agents/skills/ship-feature/SKILL.md](../.agents/skills/ship-feature/SKILL.md). Router: [sdlc.mdc](../.cursor/rules/sdlc.mdc).
+
+Drop your project's `ship-feature` skill under `.agents/skills/` or edit the shipped copy for your repo (paths, DDD rules, test roots).

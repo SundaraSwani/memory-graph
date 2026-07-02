@@ -92,6 +92,15 @@ else
   chmod +x "$TARGET/.cursor/hooks/semantic-compress-ollama.py" 2>/dev/null || true
   cp "$SCRIPT_DIR/scripts/check-ollama.sh" "$TARGET/scripts/" 2>/dev/null || true
   cp "$SCRIPT_DIR/scripts/enable-semantic-ollama.sh" "$TARGET/scripts/" 2>/dev/null || true
+
+  # Core agent skills
+  for skill in ship-feature graph-scout semantic-compress; do
+    if [ -f "$SCRIPT_DIR/.agents/skills/$skill/SKILL.md" ]; then
+      mkdir -p "$TARGET/.agents/skills/$skill"
+      cp "$SCRIPT_DIR/.agents/skills/$skill/SKILL.md" "$TARGET/.agents/skills/$skill/"
+    fi
+  done
+
   echo "[ok] root files ready"
 
 fi

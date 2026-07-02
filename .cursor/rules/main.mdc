@@ -61,4 +61,4 @@ Semantic compression (optional, per repo):
 
 Check Ollama: `bash scripts/check-ollama.sh` — status in `memory/.semantic-ollama-status`
 
-Optional SDLC workflow → `.cursor/rules/sdlc.mdc` (invoke for large features, not every chat).
+Optional SDLC → `.cursor/rules/sdlc.mdc` (opt-in). End-to-end features → **`ship-feature`** skill.
