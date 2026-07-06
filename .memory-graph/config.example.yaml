@@ -2,12 +2,19 @@
 # config.yaml is gitignored — one file per project.
 
 # How the session hook detects changed files:
-#   auto   — git diff + Cursor edit ledger (default; best for most repos)
+#   auto   — Cursor edit ledger when present; else git (deletions stripped when noisy)
 #   git    — git diff only (ignore the edit ledger)
 #   cursor — Cursor afterFileEdit ledger only (non-git folders, scratch projects)
 #
 # Override anytime: MEMORY_TRACK=git|cursor|auto
 track: auto
+
+# Session scope: prefer agent-edited files over whole dirty working tree (auto mode).
+# When git fallback has more than git_noise_threshold paths, omit deletions.
+git_noise_threshold: 25
+scope_max: 40
+# Fill context/open/blocked from stop-hook transcript (no extra agent turn).
+session_fill_from_transcript: true
 
 # Local graph scout (optional — no Cursor subagent tokens for traversal)
 # Enable: bash scripts/enable-graph-scout-local.sh
@@ -24,3 +31,10 @@ agent_brief_max_lines: 45
 tool_output_compress: true
 tool_output_min_chars: 6000
 tool_output_max_summary: 1200
+
+# Ollama context gateway — precomputed at session stop, injected at sessionStart (~1200 chars).
+# Enable token-first profile: bash scripts/enable-token-first.sh
+ollama_context_on_start: false
+ollama_context_max_lines: 15
+ollama_context_cache_mins: 30
+ollama_context_max_chars: 1200

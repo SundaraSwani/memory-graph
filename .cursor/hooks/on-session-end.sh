@@ -59,6 +59,18 @@ _assemble_agent_brief() {
   REPO_ROOT="$REPO_ROOT" python3 "$brief_py" >/dev/null 2>&1 || true
 }
 
+_ollama_context_on_start_enabled() {
+  local cfg="$REPO_ROOT/.memory-graph/config.yaml"
+  [[ -f "$cfg" ]] && grep -qE '^ollama_context_on_start:[[:space:]]*true' "$cfg" 2>/dev/null
+}
+
+_maybe_ollama_context_gateway() {
+  local gw_py="$REPO_ROOT/.cursor/hooks/ollama-context-gateway.py"
+  [[ -f "$gw_py" ]] || return 0
+  _ollama_context_on_start_enabled || return 0
+  REPO_ROOT="$REPO_ROOT" python3 "$gw_py" >/dev/null 2>&1 || true
+}
+
 _run_memory_compress() {
   local script="$REPO_ROOT/.cursor/hooks/compress-memory.py"
   [[ -f "$script" ]] || return 0
@@ -125,6 +137,37 @@ _git_changed_files() {
   { git diff --name-only 2>/dev/null; git diff --cached --name-only 2>/dev/null; } | sort -u
 }
 
+# Omit deletions — avoids bulk restructure noise in scope (180+ deleted root paths).
+_git_changed_files_no_deletes() {
+  git rev-parse --git-dir >/dev/null 2>&1 || return 0
+  {
+    git diff --diff-filter=d --name-only 2>/dev/null
+    git diff --cached --diff-filter=d --name-only 2>/dev/null
+  } | sort -u
+}
+
+_scope_max() {
+  local cfg="$REPO_ROOT/.memory-graph/config.yaml"
+  local max="${MEMORY_SCOPE_MAX:-40}"
+  if [[ -f "$cfg" ]]; then
+    local n
+    n=$(grep -E '^scope_max:[[:space:]]*' "$cfg" 2>/dev/null | sed 's/^scope_max:[[:space:]]*//' | tr -d ' "'\''')
+    [[ -n "$n" ]] && max="$n"
+  fi
+  echo "$max"
+}
+
+_git_noise_threshold() {
+  local cfg="$REPO_ROOT/.memory-graph/config.yaml"
+  local n="${MEMORY_GIT_NOISE_THRESHOLD:-25}"
+  if [[ -f "$cfg" ]]; then
+    local v
+    v=$(grep -E '^git_noise_threshold:[[:space:]]*' "$cfg" 2>/dev/null | sed 's/^git_noise_threshold:[[:space:]]*//' | tr -d ' "'\''')
+    [[ -n "$v" ]] && n="$v"
+  fi
+  echo "$n"
+}
+
 _cursor_changed_files() {
   local ledger="$REPO_ROOT/.memory-graph/changed-files"
   [[ -f "$ledger" ]] || return 0
@@ -143,9 +186,20 @@ _collect_changed_files() {
       _cursor_changed_files | _filter_internal_paths
       ;;
     auto|*)
-      git_files=$(_git_changed_files)
       cursor_files=$(_cursor_changed_files)
-      printf '%s\n%s\n' "$git_files" "$cursor_files" | sort -u | _filter_internal_paths
+      if [[ -n "$cursor_files" ]]; then
+        # Session-scoped: agent edits only — not whole dirty working tree.
+        printf '%s\n' "$cursor_files" | _filter_internal_paths
+      else
+        git_files=$(_git_changed_files)
+        git_count=$(printf '%s\n' "$git_files" | grep -c . 2>/dev/null || echo 0)
+        threshold=$(_git_noise_threshold)
+        if [[ "$git_count" -gt "$threshold" ]]; then
+          _git_changed_files_no_deletes | _filter_internal_paths
+        else
+          printf '%s\n' "$git_files" | _filter_internal_paths
+        fi
+      fi
       ;;
   esac
 }
@@ -162,22 +216,26 @@ _finish() {
   _assemble_agent_brief
   if _maybe_semantic_ollama; then
     _assemble_agent_brief
-    printf '{}'
-    exit 0
   fi
+  _maybe_ollama_context_gateway
   _maybe_semantic_followup
   printf '{}'
   exit 0
 }
 
 # ── 1. Loop guard — only fire once per chat, only on clean completion ───────
+TRANSCRIPT_PATH=""
 if command -v jq >/dev/null 2>&1; then
   LOOP_COUNT="$(printf '%s' "$_input" | jq -r '.loop_count // 0' 2>/dev/null || echo 0)"
   STATUS="$(printf '%s' "$_input" | jq -r '.status // "completed"' 2>/dev/null || echo completed)"
+  TRANSCRIPT_PATH="$(printf '%s' "$_input" | jq -r '.transcript_path // empty' 2>/dev/null || true)"
   if [[ "$LOOP_COUNT" -ge 1 || "$STATUS" != "completed" ]]; then
     printf '{}'
     exit 0
   fi
+else
+  LOOP_COUNT=0
+  STATUS=completed
 fi
 
 # ── 2. Detect changed files (git and/or Cursor ledger — see MEMORY_TRACK) ───
@@ -286,7 +344,11 @@ if [ -f "$REPO_ROOT/$session_file" ]; then
 fi
 
 # ── 6. Derive topic hints ────────────────────────────────────────────────────
-topics=$(echo "$raw_changed" | awk -F'/' '
+scope_max=$(_scope_max)
+scoped_changed=$(echo "$raw_changed" | head -n "$scope_max")
+files_yaml=$(echo "$scoped_changed" | awk '{print "  - " $0}')
+
+topics=$(echo "$scoped_changed" | awk -F'/' '
   {
     if (NF >= 3) label = $2 "/" $3
     else if (NF == 2) label = $2
@@ -304,8 +366,6 @@ topics=$(echo "$raw_changed" | awk -F'/' '
   }
 ' || true)
 
-files_yaml=$(echo "$raw_changed" | awk '{print "  - " $0}')
-
 # God nodes YAML list
 god_nodes_yaml="  []"
 if [ -n "$god_nodes_hit" ]; then
@@ -319,6 +379,14 @@ $(echo "$graph_facts" | sed 's/^/  /')"
 else
   facts_block="facts: []"
 fi
+
+_fill_session_from_transcript() {
+  local session="$1"
+  local transcript="$2"
+  local fill_py="$REPO_ROOT/.cursor/hooks/fill-session-from-transcript.py"
+  [[ -f "$fill_py" && -f "$session" && -n "$transcript" && -f "$transcript" ]] || return 0
+  REPO_ROOT="$REPO_ROOT" python3 "$fill_py" "$session" "$transcript" >/dev/null 2>&1 || true
+}
 
 # ── 7. Write structured session file (frontmatter only — no prose sections) ─
 cat > "$REPO_ROOT/$session_file" <<TEMPLATE
@@ -337,6 +405,8 @@ context: ""
 ${facts_block}
 ---
 TEMPLATE
+
+_fill_session_from_transcript "$REPO_ROOT/$session_file" "$TRANSCRIPT_PATH"
 
 # ── 8. Append row to memory.md ──────────────────────────────────────────────
 new_row="| ${today} ${now} | ${session_num} | ${topics} | ${file_count} files | [view](${session_file}) |"

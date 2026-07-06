@@ -60,6 +60,31 @@ def tail_lines(text: str, max_lines: int) -> str:
     return "\n".join(lines[:max_lines]) + f"\n# ... ({len(lines) - max_lines} lines truncated)"
 
 
+def graph_scout_in_brief(root: Path, cfg: dict) -> bool:
+    if not cfg.get("graph_scout_on_stop"):
+        return False
+    path = root / ".memory-graph" / "config.yaml"
+    if not path.is_file():
+        return False
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if re.match(r"^graph_scout_on_stop:\s*false", line):
+            return False
+        if re.match(r"^graph_scout_local:\s*true", line):
+            return True
+    return False
+
+
+def ollama_context_mode(root: Path) -> bool:
+    path = root / ".memory-graph" / "config.yaml"
+    if not path.is_file():
+        return False
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if re.match(r"^ollama_context_on_start:\s*true", line.strip()):
+            return True
+    return False
+
+
 def read_section(path: Path, max_lines: int) -> str | None:
     if not path.is_file():
         return None
@@ -79,7 +104,9 @@ def assemble(root: Path) -> tuple[bool, str]:
     mem.mkdir(parents=True, exist_ok=True)
 
     state = read_section(mem / "state.yaml", min(20, max_lines))
-    scout = read_section(mem / ".graph-scout.yaml", min(22, max_lines))
+    scout = None
+    if graph_scout_in_brief(root, cfg) and not ollama_context_mode(root):
+        scout = read_section(mem / ".graph-scout.yaml", min(22, max_lines))
     tool_brief = read_section(mem / ".tool-brief-last.txt", 12)
 
     if not any([state, scout, tool_brief]):

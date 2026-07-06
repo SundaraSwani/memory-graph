@@ -27,15 +27,22 @@ for f in \
   .cursor/hooks/assemble-agent-brief.py \
   .cursor/hooks/compress-tool-output.py \
   .cursor/hooks/on-session-start.sh \
+  .cursor/hooks/fill-session-from-transcript.py \
+  .cursor/hooks/ollama-context-gateway.py \
   scripts/enable-semantic-auto.sh \
   scripts/enable-semantic-ollama.sh \
   scripts/check-ollama.sh \
   scripts/graph-scout-local.sh \
   scripts/enable-graph-scout-local.sh \
   scripts/check-graph-scout-local.sh \
+  scripts/enable-token-first.sh \
   docs/cheat-sheet.md \
   scripts/test.sh \
-  scripts/test-compress-sandbox.sh; do
+  scripts/test-compress-sandbox.sh \
+  scripts/memory-observatory.sh \
+  dashboard/scan.py \
+  dashboard/serve.py \
+  dashboard/static/index.html; do
   [ -f "$f" ] || fail "missing $f"
 done
 
@@ -56,6 +63,9 @@ for f in \
   scripts/enable-graph-scout-local.sh \
   scripts/check-graph-scout-local.sh \
   scripts/enable-token-savers.sh \
+  scripts/enable-token-first.sh \
+  scripts/upgrade-memory-graph.sh \
+  scripts/memory-observatory.sh \
   .cursor/hooks/compress-tool-output.sh \
   .cursor/hooks/on-session-start.sh; do
   [ -f "$f" ] && bash -n "$f" || fail "bash -n $f"
@@ -67,6 +77,10 @@ python3 -m py_compile .cursor/hooks/semantic-compress-ollama.py
 python3 -m py_compile .cursor/hooks/graph-scout-local.py
 python3 -m py_compile .cursor/hooks/assemble-agent-brief.py
 python3 -m py_compile .cursor/hooks/compress-tool-output.py
+python3 -m py_compile .cursor/hooks/fill-session-from-transcript.py
+python3 -m py_compile .cursor/hooks/ollama-context-gateway.py
+python3 -m py_compile dashboard/scan.py
+python3 -m py_compile dashboard/serve.py
 
 echo "== static: hook contract =="
 if grep -v '^[[:space:]]*#' .cursor/hooks/on-session-end.sh | grep -q 'Fill in three sections'; then
@@ -92,7 +106,17 @@ grep -q 'agent-brief' .cursor/rules/main.mdc || \
   fail "main.mdc must document agent brief"
 grep -q '_collect_changed_files' .cursor/hooks/on-session-end.sh || \
   fail "on-session-end.sh must support git + cursor change tracking"
+grep -q 'fill-session-from-transcript' .cursor/hooks/on-session-end.sh || \
+  fail "on-session-end.sh must fill session fields from transcript"
+grep -q 'session_fill_from_transcript' .memory-graph/config.example.yaml || \
+  fail "config.example.yaml must document session_fill_from_transcript"
 grep -q 'afterFileEdit' .cursor/hooks.json || \
   fail "hooks.json must register afterFileEdit tracker"
+grep -q 'ollama-context-gateway' .cursor/hooks/on-session-end.sh || \
+  fail "on-session-end.sh must precompute Ollama context gateway"
+grep -q '.cursor-context.yaml' .cursor/hooks/on-session-start.sh || \
+  fail "on-session-start.sh must inject cursor-context when enabled"
+grep -q 'ollama_context_on_start' .memory-graph/config.example.yaml || \
+  fail "config.example.yaml must document ollama_context_on_start"
 
 echo "OK — static checks passed"

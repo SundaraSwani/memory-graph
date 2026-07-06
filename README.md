@@ -2,7 +2,7 @@
 
 Give any repo a persistent brain that survives agent sessions — without bloating every Cursor turn.
 
-**Design goal:** persistent memory first, token savings second. The agent reads a slim brief + compressed state file, queries the code graph via subagents (not raw `graph.json`), and skips extra hook turns unless you opt in.
+**Design goal:** cut Cursor context per turn via an Ollama context gateway; persistent memory on session stop, slim injection on session start.
 
 ---
 
@@ -11,10 +11,11 @@ Give any repo a persistent brain that survives agent sessions — without bloati
 | Layer | What | Token cost |
 |-------|------|------------|
 | **Brief** | `.cursor/rules/main.mdc` — purpose + god nodes table | ~small, always loaded |
-| **Agent brief** | `memory/.agent-brief.yaml` — merged memory + scout | One read / sessionStart inject |
-| **Working memory** | `memory/state.yaml` — hook-maintained rollup | Included in agent brief |
-| **Sessions** | `sessions/` + `memory.md` index | Written by hook, no followup turn |
-| **Graph** | graphify → local scout or subagent fallback | Local scout = free |
+| **Context gateway** | `memory/.cursor-context.yaml` — Ollama distill at stop, inject at start | ~1200 chars / sessionStart |
+| **Agent brief** | `memory/.agent-brief.yaml` — fallback when gateway off | One read / sessionStart inject |
+| **Working memory** | `memory/state.yaml` — hook-maintained rollup | Not read directly when gateway on |
+| **Sessions** | `sessions/` + `memory.md` index | Written by hook; read by Ollama at stop only |
+| **Graph** | graphify → local scout on demand | Off by default in token-first profile |
 | **Tool compress** | `postToolUse` hook — large Shell/Grep/Read | Rules-based, no LLM |
 | **Compression** | Structural (every stop) + semantic (opt-in Ollama) | Structural = free |
 
@@ -26,7 +27,8 @@ Give any repo a persistent brain that survives agent sessions — without bloati
 cd /your/project
 curl -sL https://github.com/SundaraSwani/memory-graph/archive/refs/heads/main.tar.gz \
   | tar -xz --strip-components=1 && bash setup
-bash scripts/enable-token-savers.sh    # agent brief + tool compress (recommended)
+bash scripts/enable-token-savers.sh    # agent brief + tool compress
+bash scripts/enable-token-first.sh     # Ollama gateway + no scout auto-inject (recommended for token savings)
 /graphify .    # once — builds graph, populates god nodes in main.mdc
 ```
 
@@ -50,11 +52,13 @@ On every agent **stop** (when project files changed):
 
 | Mode | Behavior |
 |------|----------|
-| `auto` | Git diff + Cursor `afterFileEdit` ledger (union) |
+| `auto` | Cursor ledger first when present; else git diff (deletions stripped when >25 paths) |
 | `git` | Git diff only |
 | `cursor` | Cursor ledger only — works without git |
 
 Config: `MEMORY_TRACK=…` or `.memory-graph/config.yaml` → `track: auto|git|cursor`
+
+**Session fields:** `context`, `open`, and `blocked` are auto-filled from the stop-hook transcript when empty (Ollama improves quality when enabled).
 
 **Never creates a session for:** pure Q&A, edits under `.cursor/`, `sessions/`, `memory.md`, `graphify-out/`.
 
@@ -76,7 +80,7 @@ facts: []
 ---
 ```
 
-The agent may fill `context:` and `open:` **in the same turn** — one line each, not prose essays. Git diff covers *what* changed; memory covers *what's still open*.
+The agent may refine `context:` and `open:` after the hook runs. The stop hook auto-fills them from the chat transcript when empty (Ollama when enabled).
 
 ---
 
@@ -229,6 +233,8 @@ See `.cursor/rules/main.mdc` and `.agents/skills/graph-scout/SKILL.md`.
 | `.cursor/hooks/compress-memory.py` | Structural compression |
 | `.cursor/hooks/graph-scout-local.py` | Local graph scout (optional) |
 | `.cursor/hooks/semantic-compress-ollama.py` | Ollama semantic compression |
+| `.cursor/hooks/ollama-context-gateway.py` | Ollama context gateway (sessionStart inject) |
+| `scripts/enable-token-first.sh` | Token-first profile (gateway on, scout off) |
 | `.memory-graph/ollama.example.yaml` | Ollama config template |
 | `memory.md` + `sessions/` | Session index and files |
 | `post-commit.sh` | graphify rebuild on commit |

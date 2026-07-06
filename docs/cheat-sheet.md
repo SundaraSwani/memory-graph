@@ -25,6 +25,17 @@ Remote install (toolkit already cloned):
 cd /your/project && ~/.cursor/skills/memory-graph/setup
 ```
 
+Upgrade existing install (hooks, scripts, `.agents` only — keeps memory, sessions, config):
+
+```bash
+cd /your/project
+bash memory-graph/scripts/upgrade-memory-graph.sh    # nested toolkit
+# or
+bash scripts/upgrade-memory-graph.sh               # after first upgrade
+# dry run:
+DRY_RUN=1 bash scripts/upgrade-memory-graph.sh
+```
+
 ---
 
 ## Files the agent reads
@@ -54,7 +65,7 @@ The hook learns what changed via **git diff** and/or a **Cursor edit ledger** (`
 
 | Mode | Meaning |
 |------|---------|
-| **`auto`** *(default)* | **Union of both.** Git diff when `.git` exists, plus any paths Cursor recorded from agent edits. Catches untracked files git would miss. |
+| **`auto`** *(default)* | **Cursor ledger first** when the agent edited files; else git diff. When git has many changes (>25), deletions are omitted from scope. |
 | **`git`** | **Git only.** Ignores the Cursor ledger. Use when you want strict git-based detection. |
 | **`cursor`** | **Cursor ledger only.** No git required. Use for non-git folders or scratch projects. |
 
@@ -71,12 +82,14 @@ cp .memory-graph/config.example.yaml .memory-graph/config.yaml
 
 Requires both hooks in `.cursor/hooks.json` — `afterFileEdit` (tracker) + `stop` (session end). `bash setup` installs them; merge manually if you already had a custom `hooks.json`.
 
-Agent fills in same turn (optional):
+Agent fills in same turn (optional — hook auto-fills from transcript when empty):
 
 ```yaml
 context: "one line the next agent needs"
 open:
   - "still-actionable item"
+blocked:
+  - "external blocker if any"
 ```
 
 ---
@@ -175,18 +188,26 @@ Don't enable both Ollama and agent auto unless you want Ollama first, agent as f
 ## Token savers (reduce Cursor usage)
 
 ```bash
-bash scripts/enable-token-savers.sh          # agent brief + tool compress + scout on stop
-bash scripts/enable-graph-scout-local.sh     # local graph scout (optional)
+bash scripts/enable-token-first.sh         # recommended — Ollama gateway, no scout auto-inject
+bash scripts/enable-token-savers.sh        # agent brief + tool compress + scout on stop
+bash scripts/enable-graph-scout-local.sh   # local graph scout (on demand)
 ```
 
 | Feature | File | Saves |
 |---------|------|-------|
-| **Agent brief** | `memory/.agent-brief.yaml` | One read vs state + scout + multiple files |
-| **sessionStart inject** | hook | Brief in initial context (new chats) |
+| **Ollama gateway** | `memory/.cursor-context.yaml` | ~1200 chars at sessionStart; precomputed at stop |
+| **Agent brief** | `memory/.agent-brief.yaml` | Fallback when gateway off |
+| **sessionStart inject** | hook | Read-only — no LLM in the 10s window |
 | **Tool compress** | `postToolUse` hook | Summarizes Shell/Grep/Read >6K chars |
-| **Scout on stop** | hook | Precomputes graph scout for next task |
+| **Scout on stop** | hook | Off in token-first profile — run scout manually |
 
-Disable in `.memory-graph/config.yaml`: `agent_brief: false`, `tool_output_compress: false`
+```bash
+REPO_ROOT=. python3 .cursor/hooks/ollama-context-gateway.py --check
+REPO_ROOT=. python3 .cursor/hooks/ollama-context-gateway.py --dry-run
+REPO_ROOT=. python3 .cursor/hooks/ollama-context-gateway.py --force   # refresh cache
+```
+
+Disable in `.memory-graph/config.yaml`: `ollama_context_on_start: false`, `agent_brief: false`, `tool_output_compress: false`
 
 ---
 
@@ -234,6 +255,32 @@ git push                                  # runs tests; --no-verify to skip
 | Too many agent turns | Don't use `enable-semantic-auto.sh`; use Ollama instead |
 | Sessions not created | Need 3+ files or god-node hit; `.cursor/` edits excluded |
 | `state.yaml` stale | Runs every stop when files change; manual: `compress-memory.py` |
+
+---
+
+## Memory Observatory (cross-repo dashboard)
+
+Local web UI — auto-discover repos with memory-graph, show sessions, compression tiers, semantic log, live telemetry.
+
+```bash
+bash scripts/memory-observatory.sh              # http://127.0.0.1:8765
+OBSERVATORY_ROOTS=~/Desktop:~/code bash scripts/memory-observatory.sh
+```
+
+**Config** (optional, machine-wide):
+
+```bash
+cp .memory-graph/observatory.example.yaml ~/.memory-graph/observatory.yaml
+# edit roots: list
+```
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `OBSERVATORY_ROOTS` | Desktop, Documents, … | Colon-separated scan roots |
+| `OBSERVATORY_PORT` | `8765` | HTTP port |
+| `OBSERVATORY_MAX_DEPTH` | `4` | Walk depth under each root |
+
+Read-only — scans `memory/`, `sessions/`, `.semantic-*` on disk. Polls `/api/state` every 2s.
 
 ---
 

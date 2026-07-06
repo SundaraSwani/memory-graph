@@ -40,6 +40,9 @@ memory/.graph-scout-status
 memory/.graph-scout-last-error
 memory/.agent-brief.yaml
 memory/.agent-brief-status
+memory/.cursor-context.yaml
+memory/.cursor-context-meta
+memory/.cursor-context-status
 memory/.tool-brief/
 memory/.tool-brief-last.txt
 .memory-graph-semantic-auto

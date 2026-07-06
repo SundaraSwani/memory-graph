@@ -20,8 +20,10 @@ DEFAULT_CONFIG = {
     "enabled": False,
     "host": "http://127.0.0.1:11434",
     "model": "llama3.2:3b",
-    "max_archive_chars": 12000,
+    "max_archive_chars": 8000,
+    "max_archive_files": 2,
     "timeout": 120,
+    "temperature": 0,
 }
 
 
@@ -47,9 +49,14 @@ def load_config(root: Path) -> dict | None:
         val = val.strip().strip('"').strip("'")
         if key in ("enabled",):
             cfg[key] = val.lower() in ("true", "yes", "1")
-        elif key in ("max_archive_chars", "timeout"):
+        elif key in ("max_archive_chars", "timeout", "max_archive_files"):
             try:
                 cfg[key] = int(val)
+            except ValueError:
+                pass
+        elif key == "temperature":
+            try:
+                cfg[key] = float(val)
             except ValueError:
                 pass
         elif key in ("host", "model"):
@@ -74,7 +81,7 @@ def write_status(root: Path, ok: bool, message: str) -> None:
         err_path.write_text(message + "\n", encoding="utf-8")
 
 
-def gather_source(root: Path, max_archive_chars: int) -> str:
+def gather_source(root: Path, max_archive_chars: int, max_archive_files: int) -> str:
     parts: list[str] = []
     state = root / "memory" / "state.yaml"
     if state.is_file():
@@ -88,7 +95,7 @@ def gather_source(root: Path, max_archive_chars: int) -> str:
     if archive_dir.is_dir():
         budget = max_archive_chars
         chunks: list[str] = []
-        for path in sorted(archive_dir.glob("*.yaml"), reverse=True):
+        for path in sorted(archive_dir.glob("*.yaml"), reverse=True)[:max_archive_files]:
             if budget <= 0:
                 break
             text = path.read_text(encoding="utf-8", errors="replace")
@@ -97,20 +104,21 @@ def gather_source(root: Path, max_archive_chars: int) -> str:
             chunks.append(f"=== {path.name} ===\n{text}")
             budget -= len(text)
         if chunks:
-            parts.append("=== sessions/archive/ ===\n" + "\n\n".join(chunks))
+            parts.append("=== sessions/archive/ (most recent only) ===\n" + "\n\n".join(chunks))
 
-    sessions = sorted((root / "sessions").glob("*.md"), reverse=True)[:5]
+    sessions = sorted((root / "sessions").glob("*.md"), reverse=True)[:3]
     if sessions:
         today_parts = []
         for p in sessions:
-            today_parts.append(f"--- {p.name} ---\n" + p.read_text(encoding="utf-8", errors="replace")[:2000])
+            today_parts.append(f"--- {p.name} ---\n" + p.read_text(encoding="utf-8", errors="replace")[:1500])
         parts.append("=== sessions/ (today) ===\n" + "\n\n".join(today_parts))
 
     return "\n\n".join(parts)
 
 
-def build_prompt(source: str) -> str:
-    return f"""You compress project memory for a coding agent. Output ONLY valid YAML — no markdown fences, no explanation.
+SYSTEM_PROMPT = """You compress project memory for a coding agent.
+
+CRITICAL: Reply with ONLY valid YAML. No markdown fences, no prose, no explanation before or after.
 
 Rules:
 - Max 15 lines of YAML fields (comments allowed with #)
@@ -120,7 +128,7 @@ Rules:
 - Do not invent facts not in the source
 
 Required shape:
-updated: {date.today().isoformat()}
+updated: YYYY-MM-DD
 sessions_active: <number or 0>
 open:
   - "item"
@@ -128,15 +136,26 @@ blocked: []
 god_nodes_recent: []
 recent_context:
   - "one line summary"
-
-SOURCE:
-{source}
 """
 
 
-def ollama_generate(host: str, model: str, prompt: str, timeout: int) -> str:
-    url = host.rstrip("/") + "/api/generate"
-    body = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
+def build_user_message(source: str) -> str:
+    return f"Distill the following source into memory/state.yaml. Set updated to {date.today().isoformat()}.\n\nSOURCE:\n{source}"
+
+
+def ollama_chat(host: str, model: str, system: str, user: str, timeout: int, temperature: float) -> str:
+    url = host.rstrip("/") + "/api/chat"
+    body = json.dumps(
+        {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "stream": False,
+            "options": {"temperature": temperature},
+        }
+    ).encode("utf-8")
     req = urllib.request.Request(
         url,
         data=body,
@@ -145,7 +164,8 @@ def ollama_generate(host: str, model: str, prompt: str, timeout: int) -> str:
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8"))
-    return (data.get("response") or "").strip()
+    msg = data.get("message") or {}
+    return (msg.get("content") or "").strip()
 
 
 def extract_yaml(text: str) -> str:
@@ -176,15 +196,27 @@ def run(root: Path, dry_run: bool = False) -> int:
         write_status(root, True, "nothing pending")
         return 0
 
-    source = gather_source(root, int(cfg["max_archive_chars"]))
-    prompt = build_prompt(source)
+    source = gather_source(
+        root,
+        int(cfg["max_archive_chars"]),
+        int(cfg.get("max_archive_files") or 2),
+    )
+    user_msg = build_user_message(source)
 
     if dry_run:
-        print(prompt[:2000] + ("\n..." if len(prompt) > 2000 else ""))
+        print(f"--- system ({len(SYSTEM_PROMPT)} chars) ---\n{SYSTEM_PROMPT[:800]}\n")
+        print(f"--- user ({len(user_msg)} chars) ---\n{user_msg[:2000]}" + ("\n..." if len(user_msg) > 2000 else ""))
         return 0
 
     try:
-        raw = ollama_generate(cfg["host"], cfg["model"], prompt, int(cfg["timeout"]))
+        raw = ollama_chat(
+            cfg["host"],
+            cfg["model"],
+            SYSTEM_PROMPT,
+            user_msg,
+            int(cfg["timeout"]),
+            float(cfg.get("temperature", 0)),
+        )
     except urllib.error.URLError as e:
         msg = f"Ollama unreachable at {cfg['host']}: {e}. Is Ollama running? (ollama serve)"
         write_status(root, False, msg)
@@ -194,7 +226,8 @@ def run(root: Path, dry_run: bool = False) -> int:
     yaml_out = extract_yaml(raw)
     if not validate_output(yaml_out):
         msg = "Ollama response was not valid state.yaml — try a larger model or run semantic-compress skill"
-        write_status(root, False, msg)
+        err_detail = f"{msg}\n\n--- raw response ---\n{raw[:3000]}"
+        write_status(root, False, err_detail)
         print(msg, file=sys.stderr)
         print("--- raw response ---", file=sys.stderr)
         print(raw[:1500], file=sys.stderr)

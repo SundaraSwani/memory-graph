@@ -58,7 +58,7 @@ Do **not** also load `memory/state.yaml`, `memory/.graph-scout.yaml`, or `graphi
 
 Index → `memory.md` (last 30 sessions). Today → `sessions/` (YAML). Prior days → `sessions/archive/`. Raw rollup → `memory/state.yaml` (hook-maintained; included in brief).
 
-When you finish a turn that changed code, if a session file was created for this chat, append **one line** to `context:` and any `open:` items the **next** agent needs — not prose decisions. Git diff covers *what* changed.
+When you finish a turn that changed code, you may refine `context:` / `open:` in today's session file — the stop hook also auto-fills them from the chat transcript when empty. Git diff covers *what* changed; memory covers *what's still open*.
 
 Only add `facts:` bullets when scout flagged HIGH/CRITICAL god nodes.
 

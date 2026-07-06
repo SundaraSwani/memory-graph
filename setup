@@ -40,13 +40,17 @@ if [ "$MODE" = "inplace" ]; then
            "$TARGET/.cursor/hooks/compress-tool-output.py" \
            "$TARGET/.cursor/hooks/compress-tool-output.sh" \
            "$TARGET/.cursor/hooks/on-session-start.sh" \
+           "$TARGET/.cursor/hooks/fill-session-from-transcript.py" \
+           "$TARGET/.cursor/hooks/ollama-context-gateway.py" \
            "$TARGET/scripts/test.sh" \
            "$TARGET/scripts/test-static.sh" \
            "$TARGET/scripts/test-compress-sandbox.sh" \
            "$TARGET/scripts/graph-scout-local.sh" \
            "$TARGET/scripts/enable-graph-scout-local.sh" \
            "$TARGET/scripts/check-graph-scout-local.sh" \
-           "$TARGET/scripts/enable-token-savers.sh" 2>/dev/null || true
+           "$TARGET/scripts/enable-token-savers.sh" \
+           "$TARGET/scripts/enable-token-first.sh" 2>/dev/null || true
+  chmod +x "$TARGET/scripts/upgrade-memory-graph.sh" 2>/dev/null || true
 
   # Dev hooks: pre-push runs sandbox tests before git push
   if [ -f "$TARGET/scripts/install-dev-hooks.sh" ]; then
@@ -115,13 +119,20 @@ else
   cp "$SCRIPT_DIR/.cursor/hooks/compress-tool-output.py" "$TARGET/.cursor/hooks/" 2>/dev/null || true
   cp "$SCRIPT_DIR/.cursor/hooks/compress-tool-output.sh" "$TARGET/.cursor/hooks/" 2>/dev/null || true
   cp "$SCRIPT_DIR/.cursor/hooks/on-session-start.sh" "$TARGET/.cursor/hooks/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/.cursor/hooks/fill-session-from-transcript.py" "$TARGET/.cursor/hooks/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/.cursor/hooks/ollama-context-gateway.py" "$TARGET/.cursor/hooks/" 2>/dev/null || true
   cp "$SCRIPT_DIR/scripts/enable-token-savers.sh" "$TARGET/scripts/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/scripts/enable-token-first.sh" "$TARGET/scripts/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/scripts/upgrade-memory-graph.sh" "$TARGET/scripts/" 2>/dev/null || true
   chmod +x "$TARGET/scripts/graph-scout-local.sh" "$TARGET/scripts/enable-graph-scout-local.sh" \
-    "$TARGET/scripts/check-graph-scout-local.sh" "$TARGET/scripts/enable-token-savers.sh" 2>/dev/null || true
+    "$TARGET/scripts/check-graph-scout-local.sh" "$TARGET/scripts/enable-token-savers.sh" \
+    "$TARGET/scripts/upgrade-memory-graph.sh" 2>/dev/null || true
   chmod +x "$TARGET/.cursor/hooks/assemble-agent-brief.py" \
     "$TARGET/.cursor/hooks/compress-tool-output.py" \
     "$TARGET/.cursor/hooks/compress-tool-output.sh" \
-    "$TARGET/.cursor/hooks/on-session-start.sh" 2>/dev/null || true
+    "$TARGET/.cursor/hooks/on-session-start.sh" \
+    "$TARGET/.cursor/hooks/fill-session-from-transcript.py" \
+    "$TARGET/.cursor/hooks/ollama-context-gateway.py" 2>/dev/null || true
 
   # Core agent skills
   for skill in ship-feature graph-scout semantic-compress; do
@@ -191,3 +202,5 @@ echo "  bash scripts/enable-graph-scout-local.sh — local graph scout (optional
 echo "  /grill-me                — optional, for new features"
 echo "  INSTALL_GSTACK=1 bash setup  — add gstack SDLC skills (/spec, /review, /qa, /ship)"
 echo "  bash scripts/test.sh         — run sandbox tests before push"
+echo "  bash scripts/upgrade-memory-graph.sh — refresh hooks/scripts/.agents only"
+echo "  bash scripts/memory-observatory.sh     — cross-repo Memory Observatory dashboard"

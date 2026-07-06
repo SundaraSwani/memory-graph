@@ -10,10 +10,16 @@ host: http://127.0.0.1:11434
 model: llama3.2:3b
 
 # Max characters from archive files sent to the model (token control)
-max_archive_chars: 12000
+max_archive_chars: 8000
+
+# Only include the N most recent archive month files
+max_archive_files: 2
 
 # Request timeout seconds
 timeout: 120
+
+# Chat API temperature (0 = deterministic YAML output)
+temperature: 0
 
 # Optional: Ollama one-line graph-scout recommendation (traversal stays local via graphify)
 # Requires graph_scout_local: true in config.yaml

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Memory Observatory</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Memory Observatory <span class="badge" id="live-badge">live</span></h1>
+      <p id="subtitle">Cross-repo memory-graph dashboard · auto-discover · polling</p>
+    </header>
+
+    <section class="stats" id="stats"></section>
+
+    <section class="grid-main">
+      <div class="panel">
+        <div class="panel-head">
+          Constellation
+          <span class="pill info" id="repo-count">0 repos</span>
+        </div>
+        <div class="panel-body">
+          <svg id="constellation" viewBox="0 0 320 220" aria-label="Repo constellation"></svg>
+          <div class="legend">
+            <span class="active">Active session</span>
+            <span class="pending">Semantic pending</span>
+            <span class="idle">Idle</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">Sessions per repo</div>
+        <div class="panel-body">
+          <div class="chart-wrap"><canvas id="sessions-chart"></canvas></div>
+          <div class="chart-caption" id="sessions-caption"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">Compression rate</div>
+        <div class="panel-body">
+          <div class="chart-wrap"><canvas id="compression-chart"></canvas></div>
+          <div class="chart-caption">Tier rollup: warm + cold vs total bytes on disk</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid-lower">
+      <div class="panel">
+        <div class="panel-head">Semantic compression log</div>
+        <div class="panel-body" id="semantic-log"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">Memory tier usage</div>
+        <div class="panel-body" id="tier-usage"></div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin: 0 24px 16px">
+      <div class="panel-head">Per-repo snapshot</div>
+      <div class="panel-body" style="padding: 0">
+        <table>
+          <thead>
+            <tr>
+              <th>Repo</th>
+              <th>Sessions</th>
+              <th>Semantic</th>
+              <th>Last change</th>
+              <th>Working memory</th>
+            </tr>
+          </thead>
+          <tbody id="repo-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="telemetry">
+      <div class="panel-head">
+        Live telemetry
+        <span class="pill ok" id="poll-badge">polling 2s</span>
+      </div>
+      <div id="telemetry"></div>
+    </section>
+
+    <footer id="footer"></footer>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
