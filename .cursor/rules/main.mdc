@@ -27,14 +27,24 @@ _No graph yet. Run `/graphify .` to build._
 
 ---
 
-## Graph Scout (every task)
+## Graph Scout (code / architecture tasks)
 
 Do **not** load `graphify-out/graph.json` into this chat.
 
-1. **Scout subagent (always)** — at task start, spawn a subagent to query the graph for files/concepts in scope. Return only:
-   `{ communities, god_nodes, risk, inbound_callers, recommendation }` — max ~500 tokens.
-2. **Drill subagent (if scout reports HIGH/CRITICAL or >1 community)** — inbound edges and blast radius for flagged nodes. Max depth 2.
-3. Parent agent plans from the summary only.
+**Option A — Local scout (optional, no Cursor tokens):** when `.memory-graph/config.yaml` has `graph_scout_local: true`:
+
+1. Run: `bash scripts/graph-scout-local.sh "<files or concepts in scope>"`
+2. Read `memory/.graph-scout.yaml` (~500 tokens) — not the raw graph.
+3. If `drill_subagent: true` (HIGH/CRITICAL or multiple communities) → Option B drill only.
+
+Enable: `bash scripts/enable-graph-scout-local.sh` — check: `bash scripts/check-graph-scout-local.sh`
+
+**Option B — Subagent scout (default fallback):** when local scout is off, graph missing, or local run failed:
+
+1. **Scout subagent** — spawn graph-scout subagent; return only `{ communities, god_nodes, risk, inbound_callers, recommendation }` (~500 tokens).
+2. **Drill subagent** — if HIGH/CRITICAL or >1 community: inbound edges, blast radius, test scope. Max depth 2.
+
+Parent agent plans from the summary only (local YAML or subagent output).
 
 Stale graph → `/graphify update .` (AST, no LLM) or full `/graphify .` after large changes.
 
@@ -42,9 +52,11 @@ Stale graph → `/graphify update .` (AST, no LLM) or full `/graphify .` after l
 
 ## Session Memory
 
-**Working memory (read this first):** `memory/state.yaml` — auto-compressed rollup of open items, recent context, god nodes (~20 lines).
+**Read this ONE file at task start:** `memory/.agent-brief.yaml` — merged working memory + graph scout + tool summaries (~45 lines). Injected automatically on new chats when `agent_brief: true`.
 
-Index → `memory.md` (last 30 sessions). Today → `sessions/` (YAML). Prior days → `sessions/archive/` (compressed daily). Working rollup → `memory/state.yaml` (refreshed every session).
+Do **not** also load `memory/state.yaml`, `memory/.graph-scout.yaml`, or `graphify-out/graph.json` unless the brief is missing.
+
+Index → `memory.md` (last 30 sessions). Today → `sessions/` (YAML). Prior days → `sessions/archive/`. Raw rollup → `memory/state.yaml` (hook-maintained; included in brief).
 
 When you finish a turn that changed code, if a session file was created for this chat, append **one line** to `context:` and any `open:` items the **next** agent needs — not prose decisions. Git diff covers *what* changed.
 

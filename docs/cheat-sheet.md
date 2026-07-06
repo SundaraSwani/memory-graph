@@ -48,6 +48,29 @@ cd /your/project && ~/.cursor/skills/memory-graph/setup
 | 1–2 files, no god node | No | Yes |
 | 3+ files or god node hit | Yes | Yes |
 
+### Change tracking (`MEMORY_TRACK`)
+
+The hook learns what changed via **git diff** and/or a **Cursor edit ledger** (`.memory-graph/changed-files`, written by the `afterFileEdit` hook).
+
+| Mode | Meaning |
+|------|---------|
+| **`auto`** *(default)* | **Union of both.** Git diff when `.git` exists, plus any paths Cursor recorded from agent edits. Catches untracked files git would miss. |
+| **`git`** | **Git only.** Ignores the Cursor ledger. Use when you want strict git-based detection. |
+| **`cursor`** | **Cursor ledger only.** No git required. Use for non-git folders or scratch projects. |
+
+Set via env or `.memory-graph/config.yaml`:
+
+```bash
+# one-off
+MEMORY_TRACK=cursor
+
+# persistent (copy example first)
+cp .memory-graph/config.example.yaml .memory-graph/config.yaml
+# edit: track: cursor
+```
+
+Requires both hooks in `.cursor/hooks.json` — `afterFileEdit` (tracker) + `stop` (session end). `bash setup` installs them; merge manually if you already had a custom `hooks.json`.
+
 Agent fills in same turn (optional):
 
 ```yaml
@@ -69,6 +92,7 @@ python3 .cursor/hooks/compress-memory.py --check-semantic   # exit 2 if semantic
 
 | Env var | Default | Meaning |
 |---------|---------|---------|
+| `MEMORY_TRACK` | `auto` | `auto` / `git` / `cursor` — how the hook detects changed files |
 | `MEMORY_ARCHIVE_MODE` | `daily` | `daily` = archive prior days; `age` = use days |
 | `MEMORY_ARCHIVE_DAYS` | `14` | Used when `MEMORY_ARCHIVE_MODE=age` |
 | `MEMORY_INDEX_KEEP` | `30` | Rows kept in `memory.md` |
@@ -148,15 +172,42 @@ Don't enable both Ollama and agent auto unless you want Ollama first, agent as f
 
 ---
 
+## Token savers (reduce Cursor usage)
+
+```bash
+bash scripts/enable-token-savers.sh          # agent brief + tool compress + scout on stop
+bash scripts/enable-graph-scout-local.sh     # local graph scout (optional)
+```
+
+| Feature | File | Saves |
+|---------|------|-------|
+| **Agent brief** | `memory/.agent-brief.yaml` | One read vs state + scout + multiple files |
+| **sessionStart inject** | hook | Brief in initial context (new chats) |
+| **Tool compress** | `postToolUse` hook | Summarizes Shell/Grep/Read >6K chars |
+| **Scout on stop** | hook | Precomputes graph scout for next task |
+
+Disable in `.memory-graph/config.yaml`: `agent_brief: false`, `tool_output_compress: false`
+
+---
+
 ## Graph
 
 ```bash
 /graphify .                    # full build (LLM for docs/images)
 /graphify update .             # AST only, fast
-/graphify query "campaigns.go"  # subagent / CLI query
+/graphify query "campaigns.go"  # CLI query (--budget 500)
 ```
 
-**Rule:** never load `graphify-out/graph.json` into main chat — use graph scout subagent.
+**Local scout (optional, no subagent tokens):**
+
+```bash
+bash scripts/enable-graph-scout-local.sh
+bash scripts/graph-scout-local.sh "files or concepts in scope"
+cat memory/.graph-scout.yaml
+bash scripts/check-graph-scout-local.sh
+```
+
+**Rule:** never load `graphify-out/graph.json` into main chat. Use local scout or graph-scout subagent fallback.
 
 ---
 

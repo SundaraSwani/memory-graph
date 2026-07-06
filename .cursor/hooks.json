@@ -1,6 +1,25 @@
 {
   "version": 1,
   "hooks": {
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/on-session-start.sh",
+        "timeout": 10
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/track-changed-files.sh",
+        "timeout": 5
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": ".cursor/hooks/compress-tool-output.sh",
+        "matcher": "Shell|Grep|Read|Glob",
+        "timeout": 15
+      }
+    ],
     "stop": [
       {
         "command": ".cursor/hooks/on-session-end.sh",

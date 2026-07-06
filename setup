@@ -32,10 +32,21 @@ if [ "$MODE" = "inplace" ]; then
   # Fix permissions
   chmod +x "$TARGET/setup" "$TARGET/post-commit.sh" \
            "$TARGET/.cursor/hooks/on-session-end.sh" \
+           "$TARGET/.cursor/hooks/track-changed-files.sh" \
            "$TARGET/.cursor/hooks/compress-memory.py" \
+           "$TARGET/.cursor/hooks/graph-scout-local.py" \
+           "$TARGET/.cursor/hooks/semantic-compress-ollama.py" \
+           "$TARGET/.cursor/hooks/assemble-agent-brief.py" \
+           "$TARGET/.cursor/hooks/compress-tool-output.py" \
+           "$TARGET/.cursor/hooks/compress-tool-output.sh" \
+           "$TARGET/.cursor/hooks/on-session-start.sh" \
            "$TARGET/scripts/test.sh" \
            "$TARGET/scripts/test-static.sh" \
-           "$TARGET/scripts/test-compress-sandbox.sh" 2>/dev/null || true
+           "$TARGET/scripts/test-compress-sandbox.sh" \
+           "$TARGET/scripts/graph-scout-local.sh" \
+           "$TARGET/scripts/enable-graph-scout-local.sh" \
+           "$TARGET/scripts/check-graph-scout-local.sh" \
+           "$TARGET/scripts/enable-token-savers.sh" 2>/dev/null || true
 
   # Dev hooks: pre-push runs sandbox tests before git push
   if [ -f "$TARGET/scripts/install-dev-hooks.sh" ]; then
@@ -58,13 +69,15 @@ else
   mkdir -p "$TARGET/.cursor/hooks"
   cp "$SCRIPT_DIR/.cursor/hooks/on-session-end.sh" "$TARGET/.cursor/hooks/"
   chmod +x "$TARGET/.cursor/hooks/on-session-end.sh"
+  cp "$SCRIPT_DIR/.cursor/hooks/track-changed-files.sh" "$TARGET/.cursor/hooks/"
+  chmod +x "$TARGET/.cursor/hooks/track-changed-files.sh"
   cp "$SCRIPT_DIR/.cursor/hooks/compress-memory.py" "$TARGET/.cursor/hooks/"
   chmod +x "$TARGET/.cursor/hooks/compress-memory.py"
 
   if [ ! -f "$TARGET/.cursor/hooks.json" ]; then
     cp "$SCRIPT_DIR/.cursor/hooks.json" "$TARGET/.cursor/"
   else
-    echo "[warn] .cursor/hooks.json exists — add stop hook manually from memory-graph"
+    echo "[warn] .cursor/hooks.json exists — merge afterFileEdit + stop hooks from memory-graph"
   fi
   echo "[ok] .cursor/hooks/ ready"
 
@@ -88,10 +101,27 @@ else
     chmod +x "$TARGET/post-commit.sh"
   mkdir -p "$TARGET/sessions" "$TARGET/memory" "$TARGET/.memory-graph" "$TARGET/scripts"
   cp "$SCRIPT_DIR/.memory-graph/ollama.example.yaml" "$TARGET/.memory-graph/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/.memory-graph/config.example.yaml" "$TARGET/.memory-graph/" 2>/dev/null || true
   cp "$SCRIPT_DIR/.cursor/hooks/semantic-compress-ollama.py" "$TARGET/.cursor/hooks/" 2>/dev/null || true
   chmod +x "$TARGET/.cursor/hooks/semantic-compress-ollama.py" 2>/dev/null || true
   cp "$SCRIPT_DIR/scripts/check-ollama.sh" "$TARGET/scripts/" 2>/dev/null || true
   cp "$SCRIPT_DIR/scripts/enable-semantic-ollama.sh" "$TARGET/scripts/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/.cursor/hooks/graph-scout-local.py" "$TARGET/.cursor/hooks/" 2>/dev/null || true
+  chmod +x "$TARGET/.cursor/hooks/graph-scout-local.py" 2>/dev/null || true
+  cp "$SCRIPT_DIR/scripts/graph-scout-local.sh" "$TARGET/scripts/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/scripts/enable-graph-scout-local.sh" "$TARGET/scripts/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/scripts/check-graph-scout-local.sh" "$TARGET/scripts/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/.cursor/hooks/assemble-agent-brief.py" "$TARGET/.cursor/hooks/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/.cursor/hooks/compress-tool-output.py" "$TARGET/.cursor/hooks/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/.cursor/hooks/compress-tool-output.sh" "$TARGET/.cursor/hooks/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/.cursor/hooks/on-session-start.sh" "$TARGET/.cursor/hooks/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/scripts/enable-token-savers.sh" "$TARGET/scripts/" 2>/dev/null || true
+  chmod +x "$TARGET/scripts/graph-scout-local.sh" "$TARGET/scripts/enable-graph-scout-local.sh" \
+    "$TARGET/scripts/check-graph-scout-local.sh" "$TARGET/scripts/enable-token-savers.sh" 2>/dev/null || true
+  chmod +x "$TARGET/.cursor/hooks/assemble-agent-brief.py" \
+    "$TARGET/.cursor/hooks/compress-tool-output.py" \
+    "$TARGET/.cursor/hooks/compress-tool-output.sh" \
+    "$TARGET/.cursor/hooks/on-session-start.sh" 2>/dev/null || true
 
   # Core agent skills
   for skill in ship-feature graph-scout semantic-compress; do
@@ -156,7 +186,8 @@ echo "Done. memory-graph active in $TARGET"
 echo ""
 echo "Next:"
 echo "  /graphify .              — build knowledge graph, populate god nodes in main.mdc"
-echo "  graph-scout subagent     — query graph without loading it into chat (see main.mdc)"
+echo "  bash scripts/enable-token-savers.sh  — agent brief + tool output compress"
+echo "  bash scripts/enable-graph-scout-local.sh — local graph scout (optional)"
 echo "  /grill-me                — optional, for new features"
 echo "  INSTALL_GSTACK=1 bash setup  — add gstack SDLC skills (/spec, /review, /qa, /ship)"
 echo "  bash scripts/test.sh         — run sandbox tests before push"

@@ -21,11 +21,25 @@ graphify-out/.needs_update
 # OS
 .DS_Store
 
+# Python
+__pycache__/
+*.pyc
+
 .memory-graph/ollama.yaml
 !.memory-graph/ollama.example.yaml
+.memory-graph/config.yaml
+!.memory-graph/config.example.yaml
+.memory-graph/changed-files
 
 # memory-graph runtime (local)
 memory/.semantic-pending
 memory/.semantic-ollama-status
 memory/.semantic-ollama-last-error
+memory/.graph-scout.yaml
+memory/.graph-scout-status
+memory/.graph-scout-last-error
+memory/.agent-brief.yaml
+memory/.agent-brief-status
+memory/.tool-brief/
+memory/.tool-brief-last.txt
 .memory-graph-semantic-auto

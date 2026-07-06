@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # memory-graph: on-session-end hook
 # Fires at the end of every Cursor agent stop event.
-# Only runs when git-tracked files changed — pure Q&A sessions produce no session file.
+# Only runs when project files changed — pure Q&A sessions produce no session file.
 #
 # What it does:
 #   1. Guards against loops (only fires once per chat, only on clean completion)
-#   2. Detects changed files via git diff (staged + unstaged), excluding internal paths
+#   2. Detects changed files via git diff and/or Cursor afterFileEdit ledger (MEMORY_TRACK)
 #   3. Skips low-signal changes (<3 files and no god-node blast radius)
 #   4. Creates sessions/YYYY-MM-DD-N.md with structured YAML frontmatter (no prose template)
 #   5. Appends a row to memory.md index
@@ -30,10 +30,39 @@ _semantic_sync_needed() {
   return 1
 }
 
+_agent_brief_enabled() {
+  local cfg="$REPO_ROOT/.memory-graph/config.yaml"
+  [[ -f "$cfg" ]] && grep -qE '^agent_brief:[[:space:]]*true' "$cfg" 2>/dev/null
+}
+
+_graph_scout_on_stop_enabled() {
+  local cfg="$REPO_ROOT/.memory-graph/config.yaml"
+  [[ -f "$cfg" ]] && grep -qE '^graph_scout_on_stop:[[:space:]]*true' "$cfg" 2>/dev/null && \
+    grep -qE '^graph_scout_local:[[:space:]]*true' "$cfg" 2>/dev/null
+}
+
+_precompute_graph_scout() {
+  local changed="$1"
+  local scout_py="$REPO_ROOT/.cursor/hooks/graph-scout-local.py"
+  [[ -n "$changed" && -f "$scout_py" ]] || return 0
+  _graph_scout_on_stop_enabled || return 0
+  local query
+  query=$(echo "$changed" | head -8 | tr '\n' ' ' | sed 's/  */ /g')
+  [[ -n "$query" ]] || return 0
+  REPO_ROOT="$REPO_ROOT" python3 "$scout_py" "$query" >/dev/null 2>&1 || true
+}
+
+_assemble_agent_brief() {
+  local brief_py="$REPO_ROOT/.cursor/hooks/assemble-agent-brief.py"
+  [[ -f "$brief_py" ]] || return 0
+  _agent_brief_enabled || return 0
+  REPO_ROOT="$REPO_ROOT" python3 "$brief_py" >/dev/null 2>&1 || true
+}
+
 _run_memory_compress() {
   local script="$REPO_ROOT/.cursor/hooks/compress-memory.py"
   [[ -f "$script" ]] || return 0
-  if _semantic_sync_needed; then
+  if _semantic_sync_needed || _agent_brief_enabled; then
     REPO_ROOT="$REPO_ROOT" python3 "$script" >/dev/null 2>&1 || true
   else
     ( REPO_ROOT="$REPO_ROOT" python3 "$script" > /dev/null 2>&1 ) &
@@ -69,9 +98,70 @@ JSON
   exit 0
 }
 
+_track_mode() {
+  if [[ -n "${MEMORY_TRACK:-}" ]]; then
+    echo "$MEMORY_TRACK"
+    return
+  fi
+  local cfg="$REPO_ROOT/.memory-graph/config.yaml"
+  if [[ -f "$cfg" ]]; then
+    local t
+    t=$(grep -E '^track:[[:space:]]*' "$cfg" 2>/dev/null | sed 's/^track:[[:space:]]*//' | tr -d ' "'\''')
+    [[ -n "$t" ]] && { echo "$t"; return; }
+  fi
+  echo "auto"
+}
+
+_filter_internal_paths() {
+  grep -v '^\.cursor/' \
+    | grep -v '^sessions/' \
+    | grep -v '^memory\.md$' \
+    | grep -v '^graphify-out/' \
+    | grep -v '^$' || true
+}
+
+_git_changed_files() {
+  git rev-parse --git-dir >/dev/null 2>&1 || return 0
+  { git diff --name-only 2>/dev/null; git diff --cached --name-only 2>/dev/null; } | sort -u
+}
+
+_cursor_changed_files() {
+  local ledger="$REPO_ROOT/.memory-graph/changed-files"
+  [[ -f "$ledger" ]] || return 0
+  sort -u "$ledger"
+}
+
+_collect_changed_files() {
+  local mode git_files cursor_files
+  mode="$(_track_mode)"
+
+  case "$mode" in
+    git)
+      _git_changed_files | _filter_internal_paths
+      ;;
+    cursor)
+      _cursor_changed_files | _filter_internal_paths
+      ;;
+    auto|*)
+      git_files=$(_git_changed_files)
+      cursor_files=$(_cursor_changed_files)
+      printf '%s\n%s\n' "$git_files" "$cursor_files" | sort -u | _filter_internal_paths
+      ;;
+  esac
+}
+
+_clear_change_ledger() {
+  rm -f "$REPO_ROOT/.memory-graph/changed-files" 2>/dev/null || true
+}
+
 _finish() {
+  local changed="${1:-}"
+  _precompute_graph_scout "$changed"
+  _clear_change_ledger
   _run_memory_compress
+  _assemble_agent_brief
   if _maybe_semantic_ollama; then
+    _assemble_agent_brief
     printf '{}'
     exit 0
   fi
@@ -90,17 +180,8 @@ if command -v jq >/dev/null 2>&1; then
   fi
 fi
 
-# ── 2. Detect changed files (staged + unstaged, excluding internal files) ───
-raw_changed=$(
-  { git diff --name-only 2>/dev/null; git diff --cached --name-only 2>/dev/null; } \
-  | sort -u \
-  | grep -v '^\.cursor/' \
-  | grep -v '^sessions/' \
-  | grep -v '^memory\.md$' \
-  | grep -v '^graphify-out/' \
-  | grep -v '^$' \
-  || true
-)
+# ── 2. Detect changed files (git and/or Cursor ledger — see MEMORY_TRACK) ───
+raw_changed=$(_collect_changed_files)
 
 if [ -z "$raw_changed" ]; then
   printf '{}'
@@ -184,7 +265,7 @@ if [ "$file_count" -lt 3 ] && [ -z "$god_nodes_hit" ]; then
     PYTHON=$(cat "$REPO_ROOT/graphify-out/.graphify_python")
     ( "$PYTHON" -m graphify update . > /dev/null 2>&1 ) &
   fi
-  _finish
+  _finish "$raw_changed"
 fi
 
 # ── 5. Build session file path (YYYY-MM-DD-N.md — N resets each day) ────────
@@ -200,7 +281,7 @@ session_file="sessions/${today}-${session_num}.md"
 if [ -f "$REPO_ROOT/$session_file" ]; then
   has_context=$(grep -E '^context: ".+"' "$REPO_ROOT/$session_file" 2>/dev/null | wc -l | tr -d ' ') || has_context=0
   if [ "$has_context" -gt 0 ]; then
-    _finish
+    _finish "$raw_changed"
   fi
 fi
 
@@ -360,4 +441,4 @@ if command -v gstack-context-save >/dev/null 2>&1; then
   (gstack-context-save > /dev/null 2>&1 ) &
 fi
 
-_finish
+_finish "$raw_changed"

@@ -10,7 +10,9 @@ SANDBOX=$(mktemp -d /tmp/memory-graph-test-XXXXXX)
 HOOK_DIR=""
 HOOK2=""
 HOOK3=""
-trap 'rm -rf "$SANDBOX" "$HOOK_DIR" "$HOOK2" "$HOOK3"' EXIT
+HOOK4=""
+HOOK5=""
+trap 'rm -rf "$SANDBOX" "$HOOK_DIR" "$HOOK2" "$HOOK3" "$HOOK4" "$HOOK5"' EXIT
 
 count_files() { { find "$1" -name "$2" 2>/dev/null; true; } | wc -l | tr -d ' '; }
 
@@ -127,5 +129,29 @@ sleep 1
 assert "$(count_files "$HOOK2/sessions" '*.md')" "0" "single-file change skipped (no new session today)"
 grep -q "seed task from prior session" "$HOOK2/memory/state.yaml" || \
   { echo "FAIL: low-signal stop did not compress existing sessions"; exit 1; }
+
+# Hook: no git, MEMORY_TRACK=cursor — ledger drives session creation
+HOOK4=$(mktemp -d /tmp/memory-graph-hook4-XXXXXX)
+cp -R "$ROOT/.cursor" "$HOOK4/"
+cp "$ROOT/memory.md" "$HOOK4/"
+mkdir -p "$HOOK4/src" "$HOOK4/.memory-graph"
+cd "$HOOK4"
+printf 'src/a.go\nsrc/b.go\nsrc/c.go\n' > .memory-graph/changed-files
+MEMORY_TRACK=cursor printf '{"loop_count":0,"status":"completed"}\n' | bash .cursor/hooks/on-session-end.sh >/dev/null
+sleep 1
+assert "$(count_files "$HOOK4/sessions" '*.md')" "1" "cursor ledger creates session without git"
+test ! -f "$HOOK4/.memory-graph/changed-files" || { echo "FAIL: ledger not cleared after stop"; exit 1; }
+
+# afterFileEdit tracker: records path, skips internal .cursor edits
+HOOK5=$(mktemp -d /tmp/memory-graph-hook5-XXXXXX)
+cp -R "$ROOT/.cursor" "$HOOK5/"
+mkdir -p "$HOOK5/src"
+cd "$HOOK5"
+printf '{"file_path":"src/a.go","workspace_roots":["%s"],"hook_event_name":"afterFileEdit"}\n' "$HOOK5" \
+  | bash .cursor/hooks/track-changed-files.sh
+grep -Fxq 'src/a.go' .memory-graph/changed-files || { echo "FAIL: tracker did not record src/a.go"; exit 1; }
+printf '{"file_path":".cursor/rules/main.mdc","workspace_roots":["%s"]}\n' "$HOOK5" \
+  | bash .cursor/hooks/track-changed-files.sh
+assert "$(wc -l < .memory-graph/changed-files | tr -d ' ')" "1" "tracker skips .cursor paths"
 
 echo "OK — all sandbox assertions passed"

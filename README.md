@@ -11,10 +11,12 @@ Give any repo a persistent brain that survives agent sessions — without bloati
 | Layer | What | Token cost |
 |-------|------|------------|
 | **Brief** | `.cursor/rules/main.mdc` — purpose + god nodes table | ~small, always loaded |
-| **Working memory** | `memory/state.yaml` — open items, context, blocked | Read on demand (~20 lines) |
+| **Agent brief** | `memory/.agent-brief.yaml` — merged memory + scout | One read / sessionStart inject |
+| **Working memory** | `memory/state.yaml` — hook-maintained rollup | Included in agent brief |
 | **Sessions** | `sessions/` + `memory.md` index | Written by hook, no followup turn |
-| **Graph** | graphify → `graphify-out/` | Subagent scout per task, not inline |
-| **Compression** | Structural (every stop) + semantic (opt-in) | Structural = free |
+| **Graph** | graphify → local scout or subagent fallback | Local scout = free |
+| **Tool compress** | `postToolUse` hook — large Shell/Grep/Read | Rules-based, no LLM |
+| **Compression** | Structural (every stop) + semantic (opt-in Ollama) | Structural = free |
 
 ---
 
@@ -24,6 +26,7 @@ Give any repo a persistent brain that survives agent sessions — without bloati
 cd /your/project
 curl -sL https://github.com/SundaraSwani/memory-graph/archive/refs/heads/main.tar.gz \
   | tar -xz --strip-components=1 && bash setup
+bash scripts/enable-token-savers.sh    # agent brief + tool compress (recommended)
 /graphify .    # once — builds graph, populates god nodes in main.mdc
 ```
 
@@ -35,13 +38,23 @@ curl -sL https://github.com/SundaraSwani/memory-graph/archive/refs/heads/main.ta
 
 ## How the session hook works
 
-On every agent **stop** (when git-tracked files changed):
+On every agent **stop** (when project files changed):
 
 1. **Smart gate** — skip session file if fewer than 3 files changed and no god-node blast radius
 2. **Session file** — structured YAML frontmatter only (no extra agent turn)
 3. **Structural compress** — rollup → `memory/state.yaml`, archive prior days
 4. **Semantic compress** — only if enabled and caps hit (see below)
 5. **Graphify AST update** — background, no LLM (when code files changed)
+
+**Change detection** (`MEMORY_TRACK`, default `auto`):
+
+| Mode | Behavior |
+|------|----------|
+| `auto` | Git diff + Cursor `afterFileEdit` ledger (union) |
+| `git` | Git diff only |
+| `cursor` | Cursor ledger only — works without git |
+
+Config: `MEMORY_TRACK=…` or `.memory-graph/config.yaml` → `track: auto|git|cursor`
 
 **Never creates a session for:** pure Q&A, edits under `.cursor/`, `sessions/`, `memory.md`, `graphify-out/`.
 
@@ -183,10 +196,17 @@ python3 .cursor/hooks/compress-memory.py --check-semantic   # exit 2 if pending
 
 ## Graph traversal (graph scout)
 
-Do **not** load `graphify-out/graph.json` into chat. Instead:
+Do **not** load `graphify-out/graph.json` into chat.
 
-1. **Scout subagent** (every task) — returns ~500 token summary
-2. **Drill subagent** (if HIGH/CRITICAL god node) — blast radius, callers
+**Option A — Local (optional, no Cursor tokens):**
+
+```bash
+bash scripts/enable-graph-scout-local.sh
+bash scripts/graph-scout-local.sh "compress-memory hooks"
+# → memory/.graph-scout.yaml (~500 tokens)
+```
+
+**Option B — Subagent (default fallback):** scout + drill subagents when local is off or `drill_subagent: true`.
 
 See `.cursor/rules/main.mdc` and `.agents/skills/graph-scout/SKILL.md`.
 
@@ -205,7 +225,9 @@ See `.cursor/rules/main.mdc` and `.agents/skills/graph-scout/SKILL.md`.
 | `.cursor/rules/main.mdc` | Slim AI brief (always loaded) |
 | `.cursor/rules/sdlc.mdc` | Opt-in workflow router (~50 lines) — points to `ship-feature` |
 | `.cursor/hooks/on-session-end.sh` | Session + compress + optional Ollama |
+| `.cursor/hooks/track-changed-files.sh` | Cursor afterFileEdit → change ledger |
 | `.cursor/hooks/compress-memory.py` | Structural compression |
+| `.cursor/hooks/graph-scout-local.py` | Local graph scout (optional) |
 | `.cursor/hooks/semantic-compress-ollama.py` | Ollama semantic compression |
 | `.memory-graph/ollama.example.yaml` | Ollama config template |
 | `memory.md` + `sessions/` | Session index and files |
