@@ -25,6 +25,7 @@ Give any repo a persistent brain that survives agent sessions — without bloati
 
 ```bash
 cd /your/project
+
 curl -sL https://github.com/SundaraSwani/memory-graph/archive/refs/heads/main.tar.gz \
   | tar -xz --strip-components=1 && bash setup
 bash scripts/enable-token-savers.sh    # agent brief + tool compress
