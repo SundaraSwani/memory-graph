@@ -65,9 +65,9 @@ The hook learns what changed via **git diff** and/or a **Cursor edit ledger** (`
 
 | Mode | Meaning |
 |------|---------|
-| **`auto`** *(default)* | **Cursor ledger first** when the agent edited files; else git diff. When git has many changes (>25), deletions are omitted from scope. |
-| **`git`** | **Git only.** Ignores the Cursor ledger. Use when you want strict git-based detection. |
-| **`cursor`** | **Cursor ledger only.** No git required. Use for non-git folders or scratch projects. |
+| **`auto`** *(default)* | **Cursor ledger only.** No session when the agent edited nothing (ignores dirty git tree). |
+| **`git`** | **Git diff only.** Whole working tree — use only if you never rely on the edit ledger. |
+| **`cursor`** | Same as `auto` (ledger only). Explicit for non-git folders. |
 
 Set via env or `.memory-graph/config.yaml`:
 
@@ -253,34 +253,8 @@ git push                                  # runs tests; --no-verify to skip
 | Model not found | `ollama pull llama3.2:3b` (match `model` in config) |
 | Semantic never runs | Check `memory/.semantic-pending` exists; caps may not be hit yet |
 | Too many agent turns | Don't use `enable-semantic-auto.sh`; use Ollama instead |
-| Sessions not created | Need 3+ files or god-node hit; `.cursor/` edits excluded |
+| Sessions not created | Need 3+ **agent-edited** files or god-node hit; Q&A with dirty git tree is ignored |
 | `state.yaml` stale | Runs every stop when files change; manual: `compress-memory.py` |
-
----
-
-## Memory Observatory (cross-repo dashboard)
-
-Local web UI — auto-discover repos with memory-graph, show sessions, compression tiers, semantic log, live telemetry.
-
-```bash
-bash scripts/memory-observatory.sh              # http://127.0.0.1:8765
-OBSERVATORY_ROOTS=~/Desktop:~/code bash scripts/memory-observatory.sh
-```
-
-**Config** (optional, machine-wide):
-
-```bash
-cp .memory-graph/observatory.example.yaml ~/.memory-graph/observatory.yaml
-# edit roots: list
-```
-
-| Env | Default | Meaning |
-|-----|---------|---------|
-| `OBSERVATORY_ROOTS` | Desktop, Documents, … | Colon-separated scan roots |
-| `OBSERVATORY_PORT` | `8765` | HTTP port |
-| `OBSERVATORY_MAX_DEPTH` | `4` | Walk depth under each root |
-
-Read-only — scans `memory/`, `sessions/`, `.semantic-*` on disk. Polls `/api/state` every 2s.
 
 ---
 

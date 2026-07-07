@@ -129,12 +129,6 @@ if [[ -d "$SOURCE/scripts" ]]; then
   info "updated scripts/"
 fi
 
-# ── Code: Memory Observatory dashboard ───────────────────────────────────────
-if [[ -d "$SOURCE/dashboard" ]]; then
-  _copy_tree "$SOURCE/dashboard" "$TARGET/dashboard"
-  info "updated dashboard/"
-fi
-
 # ── Code: root executables ──────────────────────────────────────────────────
 for f in setup post-commit.sh; do
   if [[ -f "$SOURCE/$f" ]]; then

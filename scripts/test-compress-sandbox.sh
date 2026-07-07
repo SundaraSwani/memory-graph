@@ -91,14 +91,11 @@ assert "$(count_files "$HOOK_DIR/sessions" '*.md')" "0" ".cursor-only change ski
 HOOK3=$(mktemp -d /tmp/memory-graph-hook3-XXXXXX)
 cp -R "$ROOT/.cursor" "$HOOK3/"
 cp "$ROOT/memory.md" "$HOOK3/"
-mkdir -p "$HOOK3/src"
+mkdir -p "$HOOK3/src" "$HOOK3/.memory-graph"
 cd "$HOOK3"
 git init -q && git config user.email "t@t.com" && git config user.name "T"
 echo "ok" > src/a.go && git add . && git commit -q -m "init"
-echo "a" >> src/a.go
-echo "b" > src/b.go
-echo "c" > src/c.go
-git add src/
+printf 'src/a.go\nsrc/b.go\nsrc/c.go\n' > .memory-graph/changed-files
 printf '{"loop_count":0,"status":"completed"}\n' | bash .cursor/hooks/on-session-end.sh >/dev/null
 sleep 1
 assert "$(count_files "$HOOK3/sessions" '*.md')" "1" "3-file change creates session"
@@ -108,7 +105,7 @@ test -f "$HOOK3/memory/state.yaml" || { echo "FAIL: hook did not produce state.y
 HOOK2=$(mktemp -d /tmp/memory-graph-hook2-XXXXXX)
 cp -R "$ROOT/.cursor" "$HOOK2/"
 cp "$ROOT/memory.md" "$HOOK2/"
-mkdir -p "$HOOK2/src" "$HOOK2/sessions" "$HOOK2/memory"
+mkdir -p "$HOOK2/src" "$HOOK2/sessions" "$HOOK2/memory" "$HOOK2/.memory-graph"
 cat > "$HOOK2/sessions/2026-06-01-1.md" <<'EOF'
 ---
 date: 2026-06-01
@@ -123,7 +120,7 @@ EOF
 cd "$HOOK2"
 git init -q && git config user.email "t@t.com" && git config user.name "T"
 echo "x" > src/a.go && git add . && git commit -q -m "init"
-echo "y" >> src/a.go
+printf 'src/a.go\n' > .memory-graph/changed-files
 printf '{"loop_count":0,"status":"completed"}\n' | bash .cursor/hooks/on-session-end.sh >/dev/null
 sleep 1
 assert "$(count_files "$HOOK2/sessions" '*.md')" "0" "single-file change skipped (no new session today)"
@@ -201,6 +198,26 @@ REPO_ROOT="$HOOK6" python3 "$HOOK6/.cursor/hooks/fill-session-from-transcript.py
 grep -q '^context: "Updated three discount' "$TEST_SESSION" || { echo "FAIL: fill script did not write context"; exit 1; }
 grep -q 'test_html.py' "$TEST_SESSION" || { echo "FAIL: fill script should capture open items"; exit 1; }
 rm -f "$TRANSCRIPT" "$TEST_SESSION"
+
+# auto mode: dirty git + empty ledger → no session (agent did not edit)
+HOOK7=$(mktemp -d /tmp/memory-graph-hook7-XXXXXX)
+cp -R "$ROOT/.cursor" "$HOOK7/"
+cp "$ROOT/memory.md" "$HOOK7/"
+mkdir -p "$HOOK7/src" "$HOOK7/.memory-graph"
+cat > "$HOOK7/.memory-graph/config.yaml" <<'EOF'
+track: auto
+EOF
+cd "$HOOK7"
+git init -q && git config user.email "t@t.com" && git config user.name "T"
+echo "ok" > src/a.go && git add . && git commit -q -m "init"
+for i in $(seq 1 30); do echo "noise" >> "src/noise_${i}.go"; done
+git add src/
+# No .memory-graph/changed-files — simulates Q&A stop with dirty tree
+before=$(count_files "$HOOK7/sessions" '*.md')
+printf '{"loop_count":0,"status":"completed"}\n' | bash .cursor/hooks/on-session-end.sh >/dev/null
+sleep 1
+after=$(count_files "$HOOK7/sessions" '*.md')
+assert "$after" "$before" "auto mode must not session-create from git diff when ledger empty"
 
 # sessionStart: token-first injects cursor-context when enabled
 GATEWAY=$(mktemp -d /tmp/memory-graph-gateway-XXXXXX)

@@ -191,14 +191,10 @@ _collect_changed_files() {
         # Session-scoped: agent edits only — not whole dirty working tree.
         printf '%s\n' "$cursor_files" | _filter_internal_paths
       else
-        git_files=$(_git_changed_files)
-        git_count=$(printf '%s\n' "$git_files" | grep -c . 2>/dev/null || echo 0)
-        threshold=$(_git_noise_threshold)
-        if [[ "$git_count" -gt "$threshold" ]]; then
-          _git_changed_files_no_deletes | _filter_internal_paths
-        else
-          printf '%s\n' "$git_files" | _filter_internal_paths
-        fi
+        # No agent edits this chat — do not fall back to git diff (avoids 200+ file
+        # sessions when the working tree is dirty but Cursor did not touch those files).
+        # Use track: git if you explicitly want git-diff-based sessions.
+        :
       fi
       ;;
   esac

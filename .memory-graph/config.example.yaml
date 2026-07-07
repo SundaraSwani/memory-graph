@@ -2,9 +2,9 @@
 # config.yaml is gitignored — one file per project.
 
 # How the session hook detects changed files:
-#   auto   — Cursor edit ledger when present; else git (deletions stripped when noisy)
-#   git    — git diff only (ignore the edit ledger)
-#   cursor — Cursor afterFileEdit ledger only (non-git folders, scratch projects)
+#   auto   — Cursor edit ledger only (default; ignores dirty git tree when agent edited nothing)
+#   git    — git diff only (whole working tree — use only if you never use afterFileEdit)
+#   cursor — same as auto (ledger only; for non-git folders)
 #
 # Override anytime: MEMORY_TRACK=git|cursor|auto
 track: auto

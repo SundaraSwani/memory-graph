@@ -39,10 +39,8 @@ for f in \
   docs/cheat-sheet.md \
   scripts/test.sh \
   scripts/test-compress-sandbox.sh \
-  scripts/memory-observatory.sh \
-  dashboard/scan.py \
-  dashboard/serve.py \
-  dashboard/static/index.html; do
+  scripts/enable-token-first.sh \
+  scripts/upgrade-memory-graph.sh; do
   [ -f "$f" ] || fail "missing $f"
 done
 
@@ -65,7 +63,6 @@ for f in \
   scripts/enable-token-savers.sh \
   scripts/enable-token-first.sh \
   scripts/upgrade-memory-graph.sh \
-  scripts/memory-observatory.sh \
   .cursor/hooks/compress-tool-output.sh \
   .cursor/hooks/on-session-start.sh; do
   [ -f "$f" ] && bash -n "$f" || fail "bash -n $f"
@@ -79,8 +76,6 @@ python3 -m py_compile .cursor/hooks/assemble-agent-brief.py
 python3 -m py_compile .cursor/hooks/compress-tool-output.py
 python3 -m py_compile .cursor/hooks/fill-session-from-transcript.py
 python3 -m py_compile .cursor/hooks/ollama-context-gateway.py
-python3 -m py_compile dashboard/scan.py
-python3 -m py_compile dashboard/serve.py
 
 echo "== static: hook contract =="
 if grep -v '^[[:space:]]*#' .cursor/hooks/on-session-end.sh | grep -q 'Fill in three sections'; then
