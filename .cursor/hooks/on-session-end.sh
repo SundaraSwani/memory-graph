@@ -398,6 +398,8 @@ ${god_nodes_yaml}
 open: []
 blocked: []
 context: ""
+why: ""
+outcome: ""
 ${facts_block}
 ---
 TEMPLATE
@@ -421,7 +423,7 @@ else
   echo "$new_row" >> "$REPO_ROOT/memory.md"
 fi
 
-# ── 9. Graphify incremental update + main.mdc god-node sync ─────────────────
+# ── 9. Graphify incremental update + main.mdc codebase summary (ledger-triggered) ─
 code_exts='\.py$|\.ts$|\.tsx$|\.js$|\.jsx$|\.go$|\.rs$|\.java$|\.cpp$|\.c$|\.rb$|\.swift$|\.kt$|\.cs$|\.scala$|\.php$'
 has_code=$(echo "$raw_changed" | grep -E "$code_exts" | head -1 || true)
 
@@ -429,75 +431,9 @@ if [ -n "$has_code" ] && [ -f "$REPO_ROOT/graphify-out/.graphify_python" ]; then
   PYTHON=$(cat "$REPO_ROOT/graphify-out/.graphify_python")
   (
     "$PYTHON" -m graphify update . > /dev/null 2>&1
-
-    MAIN_MDC="$REPO_ROOT/.cursor/rules/main.mdc"
-    GRAPH_JSON="$REPO_ROOT/graphify-out/graph.json"
-    if [ -f "$MAIN_MDC" ] && [ -f "$GRAPH_JSON" ]; then
-      MAIN_MDC="$MAIN_MDC" GRAPH_JSON="$GRAPH_JSON" "$PYTHON" - <<'PYEOF'
-import json, re, os
-from pathlib import Path
-from collections import Counter
-
-mdc_path = Path(os.environ["MAIN_MDC"])
-graph_path = Path(os.environ["GRAPH_JSON"])
-
-try:
-    g = json.loads(graph_path.read_text())
-    nodes = g.get("nodes", [])
-    links = g.get("links", g.get("edges", []))
-
-    degree = Counter()
-    for e in links:
-        degree[e.get("source", "")] += 1
-        degree[e.get("target", "")] += 1
-
-    node_by_id = {n["id"]: n for n in nodes}
-    top10 = sorted(degree.items(), key=lambda x: -x[1])[:10]
-
-    def risk(d):
-        if d >= 200: return "CRITICAL"
-        if d >= 100: return "HIGH"
-        if d >= 60:  return "MEDIUM"
-        return "LOW"
-
-    rows = ["| # | Node | Edges | Risk |", "|---|------|-------|------|"]
-    for i, (nid, deg) in enumerate(top10, 1):
-        label = node_by_id.get(nid, {}).get("label", nid)
-        rows.append(f"| {i} | `{label}` | {deg} | {risk(deg)} |")
-    god_table = "\n".join(rows)
-
-    ts = __import__("datetime").date.today().isoformat()
-    mdc = mdc_path.read_text()
-
-    mdc = re.sub(
-        r"(<!-- Last updated: )[^-\n]+",
-        f"\\g<1>{ts}",
-        mdc,
-        count=1,
-    )
-
-    mdc = re.sub(
-        r"(<!-- Last updated: [^\n]+ -->)\n\n(?:[^\n#].*?\n\n)?(> Before editing|_No graph yet)",
-        f"\\g<1>\n\n{god_table}\n\n\\g<2>",
-        mdc,
-        flags=re.DOTALL,
-        count=1,
-    )
-
-    if "_No graph yet" not in mdc and "> Before editing" not in mdc:
-        mdc = re.sub(
-            r"(## God Nodes\n\n<!-- Auto-updated by graphify[^\n]* -->\n<!-- Last updated: [^\n]+ -->)\n\n.*?(?=\n\n> Before editing|\n\n---|\n\n## |\Z)",
-            f"\\g<1>\n\n{god_table}",
-            mdc,
-            flags=re.DOTALL,
-            count=1,
-        )
-
-    mdc_path.write_text(mdc)
-except Exception as e:
-    import sys
-    print(f"graphify main.mdc sync error: {e}", file=sys.stderr)
-PYEOF
+    SUMMARY_PY="$REPO_ROOT/.cursor/hooks/graph-summary-main.py"
+    if [ -f "$SUMMARY_PY" ]; then
+      REPO_ROOT="$REPO_ROOT" python3 "$SUMMARY_PY" >/dev/null 2>&1 || true
     fi
   ) &
 fi

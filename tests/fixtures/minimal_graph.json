@@ -1,0 +1,35 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "id": "hook_compress_memory",
+      "label": "compress-memory.py",
+      "community": 1,
+      "file_type": "code"
+    },
+    {
+      "id": "hook_assemble_brief",
+      "label": "assemble-agent-brief.py",
+      "community": 1,
+      "file_type": "code"
+    },
+    {
+      "id": "hook_fill_session",
+      "label": "fill-session-from-transcript.py",
+      "community": 2,
+      "file_type": "code"
+    }
+  ],
+  "links": [
+    {
+      "source": "hook_compress_memory",
+      "target": "hook_assemble_brief"
+    },
+    {
+      "source": "hook_assemble_brief",
+      "target": "hook_fill_session"
+    }
+  ]
+}

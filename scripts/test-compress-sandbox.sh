@@ -21,6 +21,7 @@ assert() {
 }
 
 mkdir -p "$SANDBOX/sessions" "$SANDBOX/.cursor/hooks"
+cp "$ROOT/.cursor/hooks/mg_config.py" "$SANDBOX/.cursor/hooks/"
 cp "$ROOT/.cursor/hooks/compress-memory.py" "$SANDBOX/.cursor/hooks/"
 
 cat > "$SANDBOX/sessions/2026-06-01-1.md" <<'EOF'
@@ -66,7 +67,7 @@ assert "$(count_files "$SANDBOX/sessions/archive" '*.yaml')" "1" "one archive mo
 assert "$(grep -c '^| 2026' "$SANDBOX/memory.md")" "30" "index trimmed to 30"
 grep -q "active task" "$SANDBOX/memory/state.yaml" || { echo "FAIL: state missing open item"; exit 1; }
 grep -q "recent work" "$SANDBOX/memory/state.yaml" || { echo "FAIL: state missing context"; exit 1; }
-grep -q "Archived legacy note" "$SANDBOX/sessions/archive/2026-06.yaml" || { echo "FAIL: archive missing full body"; exit 1; }
+grep -q "Archived legacy note" "$SANDBOX/sessions/archive/2026-06.yaml" || { echo "FAIL: archive missing session summary/body"; exit 1; }
 
 REPO_ROOT="$SANDBOX" python3 "$SANDBOX/.cursor/hooks/compress-memory.py" >/dev/null
 assert "$(count_files "$SANDBOX/sessions" '*.md')" "1" "idempotent active count"

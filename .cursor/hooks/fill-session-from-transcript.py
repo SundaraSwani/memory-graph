@@ -15,6 +15,19 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import importlib.util
+
+
+def _load_mg_config():
+    path = Path(__file__).resolve().parent / "mg_config.py"
+    spec = importlib.util.spec_from_file_location("mg_config", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+mg = _load_mg_config()
+
 USER_TAG = re.compile(r"<user_query>\s*([\s\S]*?)\s*</user_query>", re.I)
 TIMESTAMP_TAG = re.compile(r"<timestamp>[\s\S]*?</timestamp>", re.I)
 REDACTED = re.compile(r"\[REDACTED\]", re.I)
@@ -33,42 +46,25 @@ def repo_root() -> Path:
 
 
 def load_ollama_config(root: Path) -> dict | None:
-    path = root / ".memory-graph" / "ollama.yaml"
-    if not path.is_file():
-        return None
-    cfg = {"enabled": False, "host": "http://127.0.0.1:11434", "model": "llama3.2:3b", "timeout": 60, "temperature": 0}
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or ":" not in line:
-            continue
-        key, val = line.split(":", 1)
-        key, val = key.strip(), val.strip().strip('"').strip("'")
-        if key == "enabled":
-            cfg[key] = val.lower() in ("true", "yes", "1")
-        elif key in ("host", "model"):
-            cfg[key] = val
-        elif key in ("timeout",):
-            try:
-                cfg[key] = int(val)
-            except ValueError:
-                pass
-        elif key == "temperature":
-            try:
-                cfg[key] = float(val)
-            except ValueError:
-                pass
-    return cfg if cfg.get("enabled") else None
+    return mg.load_ollama_config(root)
+
+
+def context_line_max(root: Path) -> int:
+    env = os.environ.get("MEMORY_CONTEXT_LINE_MAX", "").strip()
+    if env.isdigit():
+        return max(80, int(env))
+    cfg = mg.load_config(root)
+    return max(80, int(cfg.get("session_context_max_chars", 600)))
+
+
+def why_fields_enabled(root: Path) -> bool:
+    return mg.config_bool(mg.load_config(root), "archive_why_fields", True)
 
 
 def session_fill_enabled(root: Path) -> bool:
-    cfg = root / ".memory-graph" / "config.yaml"
-    if cfg.is_file():
-        for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
-            if re.match(r"^session_fill_from_transcript:\s*false", line.strip()):
-                return False
     if os.environ.get("MEMORY_SESSION_FILL", "1") == "0":
         return False
-    return True
+    return mg.config_bool(mg.load_config(root), "session_fill_from_transcript", True)
 
 
 def parse_frontmatter(text: str) -> tuple[dict, str, str]:
@@ -83,6 +79,10 @@ def parse_frontmatter(text: str) -> tuple[dict, str, str]:
     m = re.search(r'^context:\s*"(.*)"', fm, re.M)
     if m:
         data["context"] = m.group(1)
+    for qkey in ("why", "outcome"):
+        m = re.search(rf'^{qkey}:\s*"(.*)"', fm, re.M)
+        if m:
+            data[qkey] = m.group(1)
     for key in ("open", "blocked", "facts", "scope", "god_nodes_touched"):
         data[key] = _yaml_list(fm, key)
     for key in ("date", "time", "topics"):
@@ -146,6 +146,11 @@ def render_frontmatter(data: dict) -> str:
             lines.append(f'  - "{_escape(item)}"')
     context = (data.get("context") or "").strip()
     lines.append(f'context: "{_escape(context)}"')
+    if why_fields_enabled(repo_root()):
+        why = (data.get("why") or "").strip()
+        outcome = (data.get("outcome") or "").strip()
+        lines.append(f'why: "{_escape(why)}"')
+        lines.append(f'outcome: "{_escape(outcome)}"')
     facts = data.get("facts") or []
     if not facts:
         lines.append("facts: []")
@@ -221,7 +226,7 @@ def _dedupe(items: list[str]) -> list[str]:
     return out
 
 
-def rules_fill(users: list[str], assistants: list[str], scope: list[str]) -> dict:
+def rules_fill(users: list[str], assistants: list[str], scope: list[str], max_chars: int) -> dict:
     context = ""
     if assistants:
         last = assistants[-1]
@@ -229,12 +234,13 @@ def rules_fill(users: list[str], assistants: list[str], scope: list[str]) -> dic
         for para in re.split(r"(?<=[.!?])\s+", last):
             para = para.strip()
             if len(para) >= 30 and not para.lower().startswith("investigating"):
-                context = para[:240]
+                context = para[:max_chars]
                 break
         if not context:
-            context = last[:240]
+            context = last[:max_chars]
     elif users:
-        context = f"User: {users[-1][:200]}"
+        prefix = "User: "
+        context = f"{prefix}{users[-1][: max_chars - len(prefix)]}"
 
     if scope and context:
         base = Path(scope[0]).name if scope else ""
@@ -259,18 +265,49 @@ def rules_fill(users: list[str], assistants: list[str], scope: list[str]) -> dic
                 blocked_items.append(item)
 
     return {
-        "context": context[:240],
+        "context": context[:max_chars],
+        "why": _extract_why(assistants, max_chars),
+        "outcome": _extract_outcome(assistants, max_chars),
         "open": _dedupe(open_items)[:8],
         "blocked": _dedupe(blocked_items)[:5],
     }
 
 
-OLLAMA_SYSTEM = """You extract session memory from a coding-agent chat transcript.
+def _extract_why(assistants: list[str], max_chars: int) -> str:
+    scan = "\n".join(assistants[-2:])
+    for pat in (
+        r"(?i)root cause[:\s]+(.+?)(?:\.|$)",
+        r"(?i)because[:\s]+(.+?)(?:\.|$)",
+        r"(?i)reason[:\s]+(.+?)(?:\.|$)",
+    ):
+        m = re.search(pat, scan)
+        if m:
+            return m.group(1).strip()[:max_chars]
+    return ""
+
+
+def _extract_outcome(assistants: list[str], max_chars: int) -> str:
+    scan = "\n".join(assistants[-1:])
+    for pat in (
+        r"(?i)(?:done|fixed|shipped)[:\s—-]+(.+?)(?:\.|$)",
+        r"(?i)verified[^.]*\.",
+    ):
+        m = re.search(pat, scan)
+        if m:
+            text = m.group(0) if m.lastindex is None else m.group(1)
+            return text.strip()[:max_chars]
+    return ""
+
+
+def ollama_system(max_chars: int) -> str:
+    return f"""You extract session memory from a coding-agent chat transcript.
 
 Reply with ONLY valid YAML — no fences, no prose.
 
 Required keys:
-context: "one line summary for the next agent"
+context: "what changed — one line"
+why: "why it changed / root cause (empty string if unknown)"
+outcome: "result or verification (empty string if unknown)"
 open:
   - "actionable follow-up (0-5 items)"
 blocked:
@@ -278,13 +315,16 @@ blocked:
 
 Rules:
 - Do not invent work not discussed in the transcript
-- context must be one line, under 200 characters
+- context must be one line, under {max_chars} characters
+- why and outcome may be shorter; use "" if not discussed
 - open items must be concrete next steps still outstanding
 - blocked only for explicit blockers (approvals, missing deps, external waits)
 """
 
 
-def ollama_fill(cfg: dict, users: list[str], assistants: list[str], scope: list[str]) -> dict | None:
+def ollama_fill(
+    cfg: dict, users: list[str], assistants: list[str], scope: list[str], max_chars: int
+) -> dict | None:
     user_blob = "\n".join(f"USER: {u}" for u in users[-3:])
     asst_blob = "\n".join(f"ASSISTANT: {a[:800]}" for a in assistants[-3:])
     scope_blob = "\n".join(f"- {s}" for s in scope[:20])
@@ -298,7 +338,7 @@ def ollama_fill(cfg: dict, users: list[str], assistants: list[str], scope: list[
         {
             "model": cfg["model"],
             "messages": [
-                {"role": "system", "content": OLLAMA_SYSTEM},
+                {"role": "system", "content": ollama_system(max_chars)},
                 {"role": "user", "content": prompt[:6000]},
             ],
             "stream": False,
@@ -315,13 +355,17 @@ def ollama_fill(cfg: dict, users: list[str], assistants: list[str], scope: list[
     m = re.search(r'^context:\s*"(.*)"', text, re.M)
     if not m:
         return None
-    context = m.group(1).strip()
-    open_items = _yaml_list(text, "open")
-    blocked_items = _yaml_list(text, "blocked")
+    context = m.group(1).strip() if m else ""
     if not context:
         return None
+    why_m = re.search(r'^why:\s*"(.*)"', text, re.M)
+    out_m = re.search(r'^outcome:\s*"(.*)"', text, re.M)
+    open_items = _yaml_list(text, "open")
+    blocked_items = _yaml_list(text, "blocked")
     return {
-        "context": context[:240],
+        "context": context[:max_chars],
+        "why": (why_m.group(1).strip() if why_m else "")[:max_chars],
+        "outcome": (out_m.group(1).strip() if out_m else "")[:max_chars],
         "open": _dedupe(open_items)[:8],
         "blocked": _dedupe(blocked_items)[:5],
     }
@@ -331,6 +375,8 @@ def fill_session(session_path: Path, transcript_path: Path) -> bool:
     root = repo_root()
     if not session_fill_enabled(root):
         return False
+
+    max_chars = context_line_max(root)
 
     text = session_path.read_text(encoding="utf-8", errors="replace")
     data, _, body = parse_frontmatter(text)
@@ -342,11 +388,11 @@ def fill_session(session_path: Path, transcript_path: Path) -> bool:
         return False
 
     scope = data.get("scope") or []
-    filled = rules_fill(users, assistants, scope)
+    filled = rules_fill(users, assistants, scope, max_chars)
 
     ollama_cfg = load_ollama_config(root)
     if ollama_cfg:
-        ollama_result = ollama_fill(ollama_cfg, users, assistants, scope)
+        ollama_result = ollama_fill(ollama_cfg, users, assistants, scope, max_chars)
         if ollama_result:
             filled = ollama_result
 
@@ -354,6 +400,11 @@ def fill_session(session_path: Path, transcript_path: Path) -> bool:
         return False
 
     data["context"] = filled["context"]
+    if why_fields_enabled(root):
+        if filled.get("why") and not (data.get("why") or "").strip():
+            data["why"] = filled["why"]
+        if filled.get("outcome") and not (data.get("outcome") or "").strip():
+            data["outcome"] = filled["outcome"]
     if filled.get("open") and not data.get("open"):
         data["open"] = filled["open"]
     if filled.get("blocked") and not data.get("blocked"):

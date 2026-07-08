@@ -1,40 +1,55 @@
-# Per-repo memory-graph settings (copy to config.yaml or set env vars).
+# memory-graph — unified per-repo config (copy to config.yaml).
 # config.yaml is gitignored — one file per project.
-
-# How the session hook detects changed files:
-#   auto   — Cursor edit ledger only (default; ignores dirty git tree when agent edited nothing)
-#   git    — git diff only (whole working tree — use only if you never use afterFileEdit)
-#   cursor — same as auto (ledger only; for non-git folders)
 #
-# Override anytime: MEMORY_TRACK=git|cursor|auto
-track: auto
+# Profiles apply defaults; core/ and ollama/ override. Legacy flat keys still work.
 
-# Session scope: prefer agent-edited files over whole dirty working tree (auto mode).
-# When git fallback has more than git_noise_threshold paths, omit deletions.
-git_noise_threshold: 25
-scope_max: 40
-# Fill context/open/blocked from stop-hook transcript (no extra agent turn).
-session_fill_from_transcript: true
+profile: standard   # standard | token-first | minimal
 
-# Local graph scout (optional — no Cursor subagent tokens for traversal)
-# Enable: bash scripts/enable-graph-scout-local.sh
-graph_scout_local: false
-graph_scout_budget: 500
-# If true, uses Ollama (ollama.yaml) for a one-line recommendation only
-graph_scout_summarize: false
-# Precompute graph scout on session stop from changed files (needs graph_scout_local)
-graph_scout_on_stop: true
+core:
+  # Change tracking: auto | git | cursor (ledger only)
+  track: auto
+  git_noise_threshold: 25
+  scope_max: 40
 
-# Token savers (enabled by default — disable per repo in config.yaml)
-agent_brief: true
-agent_brief_max_lines: 45
-tool_output_compress: true
-tool_output_min_chars: 6000
-tool_output_max_summary: 1200
+  # Session capture
+  session_fill_from_transcript: true
+  session_context_max_chars: 600
 
-# Ollama context gateway — precomputed at session stop, injected at sessionStart (~1200 chars).
-# Enable token-first profile: bash scripts/enable-token-first.sh
-ollama_context_on_start: false
-ollama_context_max_lines: 15
-ollama_context_cache_mins: 30
-ollama_context_max_chars: 1200
+  # Archive richness
+  archive_why_fields: true
+  archive_enrich_on_move: true
+
+  # Graph + brief
+  graph_summary_on_stop: true
+  graph_scout_local: false
+  graph_scout_budget: 500
+  graph_scout_summarize: false
+  graph_scout_on_stop: true
+
+  # Token savers
+  agent_brief: true
+  agent_brief_max_lines: 45
+  tool_output_compress: true
+  tool_output_min_chars: 6000
+  tool_output_max_summary: 1200
+
+  # Ollama context gateway (precompute at stop, inject at sessionStart)
+  ollama_context_on_start: false
+  ollama_context_max_lines: 15
+  ollama_context_cache_mins: 30
+  ollama_context_max_chars: 1200
+
+ollama:
+  enabled: false
+  host: http://127.0.0.1:11434
+  model: llama3.2:3b
+  max_archive_chars: 12000
+  max_archive_files: 2
+  timeout: 120
+  temperature: 0
+  archive_monthly_summary: true
+
+# Profile presets (applied first, then core/ overrides):
+#   standard     — agent brief + structural compression
+#   token-first  — Ollama gateway on, graph scout off
+#   minimal      — hooks only, no brief/tool compress

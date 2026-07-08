@@ -1,51 +1,31 @@
 #!/usr/bin/env python3
-"""Merge memory/state.yaml + memory/.graph-scout.yaml (+ optional tool brief) into one file.
-
-Reduces agent reads from 2–3 files to 1 (~40 lines). Enable via config.yaml agent_brief: true
-"""
+"""Merge memory/state.yaml + graph scout + god nodes into memory/.agent-brief.yaml."""
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import os
-import re
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-DEFAULT = {
-    "agent_brief": True,
-    "agent_brief_max_lines": 45,
-}
+
+def _load_mg_config():
+    path = Path(__file__).resolve().parent / "mg_config.py"
+    spec = importlib.util.spec_from_file_location("mg_config", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+mg = _load_mg_config()
 
 
 def repo_root() -> Path:
     root = os.environ.get("REPO_ROOT")
     return Path(root) if root else Path.cwd()
-
-
-def load_config(root: Path) -> dict:
-    # Seed defaults first so missing config.yaml or omitted keys still return safe fallbacks.
-    cfg = dict(DEFAULT)
-    path = root / ".memory-graph" / "config.yaml"
-    if not path.is_file():
-        return cfg
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or ":" not in line:
-            continue
-        key, val = line.split(":", 1)
-        key, val = key.strip(), val.strip().strip('"').strip("'")
-
-        val_lower = val.lower()
-        # Only explicit words — bare 1/0 stay numeric so limits/IDs are not misread as bools.
-        if val_lower in ("true", "false", "yes", "no"):
-            cfg[key] = val_lower in ("true", "yes")
-        # Coerce ints before string so cfg.get() callers get real numbers, not strings they must re-parse.
-        elif val.lstrip('-').isdigit():
-            cfg[key] = int(val)
-        else:
-            cfg[key] = val
-    return cfg
 
 
 def strip_header(text: str) -> str:
@@ -64,31 +44,6 @@ def tail_lines(text: str, max_lines: int) -> str:
     return "\n".join(lines[:max_lines]) + f"\n# ... ({len(lines) - max_lines} lines truncated)"
 
 
-def graph_scout_in_brief(root: Path, cfg: dict) -> bool:
-    if not cfg.get("graph_scout_on_stop"):
-        return False
-    path = root / ".memory-graph" / "config.yaml"
-    if not path.is_file():
-        return False
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if re.match(r"^graph_scout_on_stop:\s*false", line):
-            return False
-        if re.match(r"^graph_scout_local:\s*true", line):
-            return True
-    return False
-
-
-def ollama_context_mode(root: Path) -> bool:
-    path = root / ".memory-graph" / "config.yaml"
-    if not path.is_file():
-        return False
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if re.match(r"^ollama_context_on_start:\s*true", line.strip()):
-            return True
-    return False
-
-
 def read_section(path: Path, max_lines: int) -> str | None:
     if not path.is_file():
         return None
@@ -98,30 +53,71 @@ def read_section(path: Path, max_lines: int) -> str | None:
     return tail_lines(text, max_lines)
 
 
+def top_god_nodes(root: Path, limit: int = 5) -> list[str]:
+    graph = root / "graphify-out" / "graph.json"
+    if not graph.is_file():
+        return []
+    try:
+        g = json.loads(graph.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    nodes = g.get("nodes", [])
+    links = g.get("links", g.get("edges", []))
+    degree: Counter = Counter()
+    for e in links:
+        degree[e.get("source", "")] += 1
+        degree[e.get("target", "")] += 1
+    node_by_id = {n["id"]: n for n in nodes}
+    out: list[str] = []
+    for nid, deg in degree.most_common(limit):
+        label = node_by_id.get(nid, {}).get("label", nid)
+        out.append(f"`{label}` ({deg} edges)")
+    return out
+
+
+def graph_scout_in_brief(cfg: dict) -> bool:
+    if not mg.config_bool(cfg, "graph_scout_on_stop"):
+        return False
+    if not mg.config_bool(cfg, "graph_scout_local"):
+        return False
+    if mg.config_bool(cfg, "ollama_context_on_start"):
+        return False
+    return True
+
+
 def assemble(root: Path) -> tuple[bool, str]:
-    cfg = load_config(root)
-    if not cfg.get("agent_brief"):
+    cfg = mg.load_config(root)
+    if not mg.config_bool(cfg, "agent_brief"):
         return False, "agent_brief disabled"
 
     max_lines = int(cfg.get("agent_brief_max_lines") or 45)
     mem = root / "memory"
     mem.mkdir(parents=True, exist_ok=True)
 
-    state = read_section(mem / "state.yaml", min(20, max_lines))
-    scout = None
-    if graph_scout_in_brief(root, cfg) and not ollama_context_mode(root):
-        scout = read_section(mem / ".graph-scout.yaml", min(22, max_lines))
-    tool_brief = read_section(mem / ".tool-brief-last.txt", 12)
-
-    if not any([state, scout, tool_brief]):
-        return False, "nothing to assemble"
-
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    profile = cfg.get("profile", "standard")
     parts = [
         "# Auto-generated by assemble-agent-brief.py — read ONLY this file at task start.",
         f"updated: {ts}",
+        f"profile: {profile}",
+        "",
+        "## Read order",
+        "brief (this file) → main.mdc Working On → sessions/ today → archive/ on demand",
         "",
     ]
+
+    gods = top_god_nodes(root)
+    if gods:
+        parts.extend(["## God nodes (graphify)", *[f"- {g}" for g in gods], ""])
+
+    state = read_section(mem / "state.yaml", min(18, max_lines))
+    scout = None
+    if graph_scout_in_brief(cfg):
+        scout = read_section(mem / ".graph-scout.yaml", min(20, max_lines))
+    tool_brief = read_section(mem / ".tool-brief-last.txt", 10)
+
+    if not any([state, scout, tool_brief, gods]):
+        return False, "nothing to assemble"
 
     if state:
         parts.extend(["## Working memory", state, ""])
@@ -131,7 +127,7 @@ def assemble(root: Path) -> tuple[bool, str]:
         parts.extend(["## Last large tool output (summary)", tool_brief, ""])
 
     body = "\n".join(parts).strip() + "\n"
-    body = tail_lines(body, max_lines + 6) + "\n"
+    body = tail_lines(body, max_lines + 10) + "\n"
 
     out = mem / ".agent-brief.yaml"
     out.write_text(body, encoding="utf-8")
@@ -144,12 +140,13 @@ def assemble(root: Path) -> tuple[bool, str]:
 def main() -> int:
     root = repo_root()
     if len(sys.argv) > 1 and sys.argv[1] == "--check":
-        cfg = load_config(root)
+        cfg = mg.load_config(root)
         out = root / "memory" / ".agent-brief.yaml"
-        print(f"agent_brief: {bool(cfg.get('agent_brief'))}")
+        print(f"agent_brief: {mg.config_bool(cfg, 'agent_brief')}")
+        print(f"  profile: {cfg.get('profile')}")
         print(f"  max_lines: {cfg.get('agent_brief_max_lines', 45)}")
         print(f"  file: {'ok' if out.is_file() else 'missing'}")
-        return 0 if cfg.get("agent_brief") else 1
+        return 0 if mg.config_bool(cfg, "agent_brief") else 1
 
     ok, msg = assemble(root)
     if not ok:

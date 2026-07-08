@@ -28,7 +28,12 @@ for f in \
   .cursor/hooks/compress-tool-output.py \
   .cursor/hooks/on-session-start.sh \
   .cursor/hooks/fill-session-from-transcript.py \
-  .cursor/hooks/ollama-context-gateway.py \
+  .cursor/hooks/mg_config.py \
+  .cursor/hooks/graph-summary-main.py \
+  memory/README.md \
+  .cursor-plugin/plugin.json \
+  hooks/hooks.json \
+  scripts/plugin-init.sh \
   scripts/enable-semantic-auto.sh \
   scripts/enable-semantic-ollama.sh \
   scripts/check-ollama.sh \
@@ -75,55 +80,9 @@ python3 -m py_compile .cursor/hooks/graph-scout-local.py
 python3 -m py_compile .cursor/hooks/assemble-agent-brief.py
 python3 -m py_compile .cursor/hooks/compress-tool-output.py
 python3 -m py_compile .cursor/hooks/fill-session-from-transcript.py
+python3 -m py_compile .cursor/hooks/mg_config.py
+python3 -m py_compile .cursor/hooks/graph-summary-main.py
 python3 -m py_compile .cursor/hooks/ollama-context-gateway.py
-
-echo "== static: config parse keeps all keys =="
-python3 - "$ROOT" <<'PY'
-import sys
-import tempfile
-import importlib.util
-from pathlib import Path
-
-# Get repo root from command line
-root_path = Path(sys.argv[1])
-
-# Import load_config from assemble-agent-brief.py
-hook_path = root_path / ".cursor/hooks/assemble-agent-brief.py"
-spec = importlib.util.spec_from_file_location("assemble_agent_brief", hook_path)
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-load_config = module.load_config
-
-# Create temp directory and config file
-temp_dir = Path(tempfile.mkdtemp())
-config_dir = temp_dir / ".memory-graph"
-config_dir.mkdir(parents=True)
-config_file = config_dir / "config.yaml"
-
-# Write test config with various key types
-config_content = """graph_scout_on_stop: true
-graph_scout_local: true
-agent_brief: true
-graph_scout_budget: 500"""
-
-config_file.write_text(config_content)
-
-import shutil
-try:
-    # Load config and test all keys are preserved with correct types
-    cfg = load_config(temp_dir)
-
-    # Test assertions
-    assert cfg.get("graph_scout_on_stop") is True, f"Expected graph_scout_on_stop=True, got {cfg.get('graph_scout_on_stop')}"
-    assert cfg.get("graph_scout_local") is True, f"Expected graph_scout_local=True, got {cfg.get('graph_scout_local')}"
-    assert cfg.get("agent_brief") is True, f"Expected agent_brief=True, got {cfg.get('agent_brief')}"
-    assert cfg.get("graph_scout_budget") == 500, f"Expected graph_scout_budget=500, got {cfg.get('graph_scout_budget')}"
-    assert isinstance(cfg.get("graph_scout_budget"), int), f"Expected graph_scout_budget to be int, got {type(cfg.get('graph_scout_budget'))}"
-finally:
-    shutil.rmtree(temp_dir, ignore_errors=True)
-
-print("config-parse OK")
-PY
 
 echo "== static: hook contract =="
 if grep -v '^[[:space:]]*#' .cursor/hooks/on-session-end.sh | grep -q 'Fill in three sections'; then
@@ -145,14 +104,22 @@ grep -q 'postToolUse' .cursor/hooks.json || fail "hooks.json must register postT
 grep -q 'sessionStart' .cursor/hooks.json || fail "hooks.json must register sessionStart agent brief"
 grep -q 'agent_brief' .memory-graph/config.example.yaml || \
   fail "config.example.yaml must document agent_brief"
+grep -q 'graph-summary-main' .cursor/hooks/on-session-end.sh || \
+  fail "on-session-end.sh must invoke graph-summary-main.py"
 grep -q 'agent-brief' .cursor/rules/main.mdc || \
-  fail "main.mdc must document agent brief"
+  fail "main.mdc must point to agent brief"
+grep -q 'archive_why_fields' .memory-graph/config.example.yaml || \
+  fail "config.example.yaml must document archive_why_fields"
 grep -q '_collect_changed_files' .cursor/hooks/on-session-end.sh || \
   fail "on-session-end.sh must support git + cursor change tracking"
 grep -q 'fill-session-from-transcript' .cursor/hooks/on-session-end.sh || \
   fail "on-session-end.sh must fill session fields from transcript"
 grep -q 'session_fill_from_transcript' .memory-graph/config.example.yaml || \
   fail "config.example.yaml must document session_fill_from_transcript"
+grep -q 'session_context_max_chars' .memory-graph/config.example.yaml || \
+  fail "config.example.yaml must document session_context_max_chars"
+grep -q 'session_context_max_chars' .memory-graph/config.example.yaml || \
+  fail "config.example.yaml must document session_context_max_chars"
 grep -q 'afterFileEdit' .cursor/hooks.json || \
   fail "hooks.json must register afterFileEdit tracker"
 grep -q 'ollama-context-gateway' .cursor/hooks/on-session-end.sh || \

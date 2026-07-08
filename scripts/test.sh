@@ -10,6 +10,9 @@ echo "──────────────────"
 
 bash "$ROOT/scripts/test-static.sh"
 echo ""
+echo "== unit tests =="
+python3 -m unittest discover -s "$ROOT/tests" -t "$ROOT" -q
+echo ""
 bash "$ROOT/scripts/test-compress-sandbox.sh"
 
 echo ""

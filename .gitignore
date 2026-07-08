@@ -13,6 +13,7 @@ graphify-out/.graphify_cached.json
 graphify-out/.graphify_transcripts.json
 graphify-out/.graphify_uncached.txt
 graphify-out/.needs_update
+graphify-out/cache/
 
 # Keep these graphify outputs
 !graphify-out/graph.json

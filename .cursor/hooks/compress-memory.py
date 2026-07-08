@@ -14,6 +14,19 @@ from collections import OrderedDict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import importlib.util
+
+
+def _load_mg_config():
+    path = Path(__file__).resolve().parent / "mg_config.py"
+    spec = importlib.util.spec_from_file_location("mg_config", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+mg = _load_mg_config()
+
 # daily (default): archive sessions from prior calendar days on every compress run
 # age: archive when session_date older than MEMORY_ARCHIVE_DAYS (default 14)
 ARCHIVE_MODE = os.environ.get("MEMORY_ARCHIVE_MODE", "daily")
@@ -22,9 +35,18 @@ INDEX_KEEP = int(os.environ.get("MEMORY_INDEX_KEEP", "30"))
 OPEN_MAX = int(os.environ.get("MEMORY_OPEN_MAX", "10"))
 BLOCKED_MAX = int(os.environ.get("MEMORY_BLOCKED_MAX", "5"))
 CONTEXT_MAX = int(os.environ.get("MEMORY_CONTEXT_MAX", "5"))
+CONTEXT_LINE_MAX = int(os.environ.get("MEMORY_CONTEXT_LINE_MAX", "600"))
 GOD_NODES_MAX = int(os.environ.get("MEMORY_GOD_NODES_MAX", "8"))
 SEMANTIC_INTERVAL_DAYS = int(os.environ.get("MEMORY_SEMANTIC_INTERVAL_DAYS", "7"))
 SEMANTIC_ARCHIVE_BYTES = int(os.environ.get("MEMORY_SEMANTIC_ARCHIVE_BYTES", "50000"))
+
+
+def _context_line_max(root: Path) -> int:
+    env = os.environ.get("MEMORY_CONTEXT_LINE_MAX", "").strip()
+    if env.isdigit():
+        return max(80, int(env))
+    cfg = mg.load_config(root)
+    return max(80, int(cfg.get("session_context_max_chars", 600)))
 
 
 def repo_root() -> Path:
@@ -63,9 +85,17 @@ def parse_frontmatter(path: Path) -> dict:
     if m:
         data["session"] = int(m.group(1))
 
+    m = re.search(r'^topics:\s*"(.*)"', fm, re.M)
+    if m:
+        data["topics"] = m.group(1).strip()
+
     m = re.search(r'^context:\s*"(.*)"', fm, re.M)
     if m:
         data["context"] = m.group(1).strip()
+    for qkey in ("why", "outcome"):
+        m = re.search(rf'^{qkey}:\s*"(.*)"', fm, re.M)
+        if m:
+            data[qkey] = m.group(1).strip()
 
     for key in ("open", "blocked", "god_nodes_touched", "scope", "facts"):
         data[key] = _yaml_list(fm, key)
@@ -119,11 +149,95 @@ def _archive_month_path(archive_dir: Path, month: str) -> Path:
     return archive_dir / f"{month}.yaml"
 
 
-def _append_archive(archive_dir: Path, month: str, entries: list[dict]) -> None:
+def _format_archive_entry(e: dict, use_rich: bool) -> str:
+    path: Path = e["_path"]
+    if not use_rich:
+        raw = path.read_text(encoding="utf-8", errors="replace").strip()
+        return f"---\n# source: {path.name}\n{raw}\n---"
+
+    summary = (e.get("context") or "").strip() or (e.get("_body_context") or "").strip()
+    lines = [
+        f"  - date: {e.get('date', '')}",
+        f"    session: {e.get('session', 1)}",
+        f'    summary: "{_escape(summary)}"',
+        f'    why: "{_escape((e.get("why") or "").strip())}"',
+        f'    outcome: "{_escape((e.get("outcome") or "").strip())}"',
+        f'    topics: "{_escape(str(e.get("topics", "")))}"',
+    ]
+    scope = e.get("scope") or []
+    if scope:
+        lines.append("    scope:")
+        for item in scope[:20]:
+            lines.append(f"      - {item}")
+    else:
+        lines.append("    scope: []")
+    open_items = e.get("open") or []
+    if open_items:
+        lines.append("    open_carried:")
+        for item in open_items[:8]:
+            lines.append(f'      - "{_escape(item)}"')
+    else:
+        lines.append("    open_carried: []")
+    gods = e.get("god_nodes_touched") or []
+    if gods:
+        lines.append("    god_nodes:")
+        for item in gods[:5]:
+            lines.append(f"      - {item}")
+    else:
+        lines.append("    god_nodes: []")
+    lines.append(f"    source: {path.name}")
+    return "\n".join(lines)
+
+
+def _deterministic_month_summary(entries: list[dict]) -> str:
+    bits: list[str] = []
+    for e in sorted(entries, key=_session_sort_key)[-12:]:
+        ctx = (e.get("context") or "").strip()
+        why = (e.get("why") or "").strip()
+        d = e.get("date", "")[:10]
+        if ctx:
+            bits.append(f"{d}: {ctx}")
+        elif why:
+            bits.append(f"{d}: {why}")
+    return " ".join(bits)[:2000] if bits else ""
+
+
+def _ensure_month_summary(dest: Path, month: str, new_entries: list[dict], root: Path) -> None:
+    cfg = mg.load_config(root)
+    if not mg.config_bool(cfg, "archive_monthly_summary", True):
+        return
+    summary = _deterministic_month_summary(new_entries)
+    if not summary:
+        return
+    header = f'month_summary: "{_escape(summary)}"\n# Archive {month}\nsessions:\n'
+    if dest.exists():
+        text = dest.read_text(encoding="utf-8", errors="replace")
+        if "month_summary:" in text:
+            text = re.sub(
+                r'^month_summary:.*\n',
+                f'month_summary: "{_escape(summary)}"\n',
+                text,
+                count=1,
+                flags=re.M,
+            )
+            dest.write_text(text, encoding="utf-8")
+            return
+        if text.strip().startswith("---"):
+            dest.write_text(header + text, encoding="utf-8")
+            return
+        dest.write_text(header + text, encoding="utf-8")
+    else:
+        dest.write_text(header, encoding="utf-8")
+
+
+def _append_archive(archive_dir: Path, month: str, entries: list[dict], root: Path) -> None:
     if not entries:
         return
     archive_dir.mkdir(parents=True, exist_ok=True)
     dest = _archive_month_path(archive_dir, month)
+    use_rich = mg.config_bool(mg.load_config(root), "archive_why_fields", True)
+
+    _ensure_month_summary(dest, month, entries, root)
 
     chunks: list[str] = []
     if dest.exists():
@@ -131,10 +245,17 @@ def _append_archive(archive_dir: Path, month: str, entries: list[dict]) -> None:
         if existing:
             chunks.append(existing)
 
-    for e in sorted(entries, key=_session_sort_key):
-        path: Path = e["_path"]
-        raw = path.read_text(encoding="utf-8", errors="replace").strip()
-        chunks.append(f"---\n# source: {path.name}\n{raw}\n---")
+    if use_rich:
+        block_lines = ["---", f"# archived: {month}"]
+        for e in sorted(entries, key=_session_sort_key):
+            block_lines.append(_format_archive_entry(e, True))
+        block_lines.append("---")
+        chunks.append("\n".join(block_lines))
+    else:
+        for e in sorted(entries, key=_session_sort_key):
+            path: Path = e["_path"]
+            raw = path.read_text(encoding="utf-8", errors="replace").strip()
+            chunks.append(f"---\n# source: {path.name}\n{raw}\n---")
 
     dest.write_text("\n\n".join(chunks) + "\n", encoding="utf-8")
 
@@ -171,7 +292,8 @@ def write_state(root: Path, entries: list[dict], active_count: int | None = None
             contexts.append(f"{prefix}: {ctx}")
         elif e.get("_body_context"):
             prefix = e.get("date", "")[:10]
-            contexts.append(f"{prefix}: {e['_body_context'][:200]}")
+            line_max = _context_line_max(root)
+            contexts.append(f"{prefix}: {e['_body_context'][:line_max]}")
 
     open_items = _dedupe_preserve(open_items)[:OPEN_MAX]
     blocked_items = _dedupe_preserve(blocked_items)[:BLOCKED_MAX]
@@ -351,7 +473,7 @@ def compress(root: Path) -> dict:
         by_month.setdefault(month, []).append(entry)
 
     for month, entries in by_month.items():
-        _append_archive(archive_dir, month, entries)
+        _append_archive(archive_dir, month, entries, root)
         for entry in entries:
             entry["_path"].unlink(missing_ok=True)
 

@@ -33,35 +33,16 @@ def repo_root() -> Path:
 
 
 def load_config(root: Path) -> dict | None:
-    path = root / ".memory-graph" / "ollama.yaml"
-    if not path.is_file():
-        return None
-    text = path.read_text(encoding="utf-8", errors="replace")
-    cfg = dict(DEFAULT_CONFIG)
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if ":" not in line:
-            continue
-        key, val = line.split(":", 1)
-        key = key.strip()
-        val = val.strip().strip('"').strip("'")
-        if key in ("enabled",):
-            cfg[key] = val.lower() in ("true", "yes", "1")
-        elif key in ("max_archive_chars", "timeout", "max_archive_files"):
-            try:
-                cfg[key] = int(val)
-            except ValueError:
-                pass
-        elif key == "temperature":
-            try:
-                cfg[key] = float(val)
-            except ValueError:
-                pass
-        elif key in ("host", "model"):
-            cfg[key] = val
-    return cfg if cfg.get("enabled") else None
+    import importlib.util
+
+    path = Path(__file__).resolve().parent / "mg_config.py"
+    spec = importlib.util.spec_from_file_location("mg_config", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    cfg = mod.load_ollama_config(root)
+    if cfg:
+        return cfg
+    return None
 
 
 def write_status(root: Path, ok: bool, message: str) -> None:

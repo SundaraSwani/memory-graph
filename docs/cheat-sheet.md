@@ -115,6 +115,7 @@ python3 .cursor/hooks/compress-memory.py --check-semantic   # exit 2 if semantic
 | `MEMORY_INDEX_KEEP` | `30` | Rows kept in `memory.md` |
 | `MEMORY_OPEN_MAX` | `10` | Cap before semantic pending |
 | `MEMORY_CONTEXT_MAX` | `5` | Context lines cap |
+| `MEMORY_CONTEXT_LINE_MAX` | `600` | Max chars per session `context` line |
 | `MEMORY_SEMANTIC_INTERVAL_DAYS` | `7` | Days between semantic prompts |
 
 | Tier | Path |
