@@ -77,6 +77,54 @@ python3 -m py_compile .cursor/hooks/compress-tool-output.py
 python3 -m py_compile .cursor/hooks/fill-session-from-transcript.py
 python3 -m py_compile .cursor/hooks/ollama-context-gateway.py
 
+echo "== static: config parse keeps all keys =="
+python3 - "$ROOT" <<'PY'
+import sys
+import tempfile
+import importlib.util
+from pathlib import Path
+
+# Get repo root from command line
+root_path = Path(sys.argv[1])
+
+# Import load_config from assemble-agent-brief.py
+hook_path = root_path / ".cursor/hooks/assemble-agent-brief.py"
+spec = importlib.util.spec_from_file_location("assemble_agent_brief", hook_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+load_config = module.load_config
+
+# Create temp directory and config file
+temp_dir = Path(tempfile.mkdtemp())
+config_dir = temp_dir / ".memory-graph"
+config_dir.mkdir(parents=True)
+config_file = config_dir / "config.yaml"
+
+# Write test config with various key types
+config_content = """graph_scout_on_stop: true
+graph_scout_local: true
+agent_brief: true
+graph_scout_budget: 500"""
+
+config_file.write_text(config_content)
+
+import shutil
+try:
+    # Load config and test all keys are preserved with correct types
+    cfg = load_config(temp_dir)
+
+    # Test assertions
+    assert cfg.get("graph_scout_on_stop") is True, f"Expected graph_scout_on_stop=True, got {cfg.get('graph_scout_on_stop')}"
+    assert cfg.get("graph_scout_local") is True, f"Expected graph_scout_local=True, got {cfg.get('graph_scout_local')}"
+    assert cfg.get("agent_brief") is True, f"Expected agent_brief=True, got {cfg.get('agent_brief')}"
+    assert cfg.get("graph_scout_budget") == 500, f"Expected graph_scout_budget=500, got {cfg.get('graph_scout_budget')}"
+    assert isinstance(cfg.get("graph_scout_budget"), int), f"Expected graph_scout_budget to be int, got {type(cfg.get('graph_scout_budget'))}"
+finally:
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+print("config-parse OK")
+PY
+
 echo "== static: hook contract =="
 if grep -v '^[[:space:]]*#' .cursor/hooks/on-session-end.sh | grep -q 'Fill in three sections'; then
   fail "on-session-end.sh must not emit session-capture followup (extra agent turns)"

@@ -24,6 +24,7 @@ def repo_root() -> Path:
 
 
 def load_config(root: Path) -> dict:
+    # Seed defaults first so missing config.yaml or omitted keys still return safe fallbacks.
     cfg = dict(DEFAULT)
     path = root / ".memory-graph" / "config.yaml"
     if not path.is_file():
@@ -34,13 +35,16 @@ def load_config(root: Path) -> dict:
             continue
         key, val = line.split(":", 1)
         key, val = key.strip(), val.strip().strip('"').strip("'")
-        if key == "agent_brief":
-            cfg[key] = val.lower() in ("true", "yes", "1")
-        elif key == "agent_brief_max_lines":
-            try:
-                cfg[key] = int(val)
-            except ValueError:
-                pass
+
+        val_lower = val.lower()
+        # Only explicit words — bare 1/0 stay numeric so limits/IDs are not misread as bools.
+        if val_lower in ("true", "false", "yes", "no"):
+            cfg[key] = val_lower in ("true", "yes")
+        # Coerce ints before string so cfg.get() callers get real numbers, not strings they must re-parse.
+        elif val.lstrip('-').isdigit():
+            cfg[key] = int(val)
+        else:
+            cfg[key] = val
     return cfg
 
 
