@@ -11,7 +11,7 @@ Invoke manually (`@sdlc`) or when unsure which workflow to use. **Do not treat t
 
 | Situation | What to run |
 |-----------|-------------|
-| **Build / implement / fix end-to-end** | **`ship-feature` skill** — full wave loop (grill → research → code∥test → validate∥guard → comment∥review → memory) |
+| **Build / implement / fix end-to-end** | **`ship-feature` skill** — full wave loop (grill → research → slice → test → code → validate∥guard → comment∥review → commit → memory) |
 | Quick fix, 1–2 files, clear scope | Graph scout (see `main.mdc`) → implement. Skip ship-feature. |
 | Touching a **god node** | Graph scout + drill **before** editing |
 | Need a written spec doc | gstack `/spec` *(optional — `INSTALL_GSTACK=1 bash setup`)* |
@@ -25,8 +25,12 @@ Use when the user says *build this*, *implement X*, *add feature*, *fix and ship
 
 **Rules:**
 - **Wave 0 (grill) finishes before any sub-agent** — one question at a time, with your recommended answer.
-- **One sub-agent per Task** — parallel agents only within the same wave, in a single message.
-- **Wave 5 memory** — parent writes session notes; memory-graph hook also updates `memory/state.yaml` on stop.
+- **Wave 1.5 (slice fan-out)** — parent splits Research into independent change slices before Wave 2.
+- **Test before code, isolated** — Test agent gets per-slice `<TEST SPEC>` only; Code agent gets per-slice `<CODE BRIEF>` only. Neither sees the other's output.
+- **Parent applies test files** after Wave 2 before launching Wave 3 Code for that slice.
+- **One sub-agent per Task** — parallel agents only within the same wave, in a single message; independent slices may parallelize at the same wave.
+- **Wave 5.5 (commit slice)** — one `git commit` per slice after validate/review green; `post-commit.sh` runs graphify + memory compress. No PR step.
+- **Wave 6 memory** — parent writes session notes; each slice commit already rolled `memory/state.yaml`.
 
 Full wave prompts → `.agents/skills/ship-feature/SKILL.md`
 
@@ -39,10 +43,12 @@ Full wave prompts → `.agents/skills/ship-feature/SKILL.md`
 | Open threads, one-line state | `context:` / `open:` in today's `sessions/*.md` |
 | Rolled-up working memory | `memory/state.yaml` *(auto, every file-changing stop)* |
 | God nodes touched | Session frontmatter + graph scout summary |
+| Pattern or convention changed | Relevant `.agents/skills/` file + `AGENTS.md` index *(same change)* |
 
 No hook followup for session capture. No prose *Decisions* essays — git diff is *what*; memory is *what's still open*.
 
 **Before starting a feature:** read `memory/state.yaml` + scan `memory.md`.
+**Before editing hooks/tests:** load `memory-graph-conventions` skill.
 
 ---
 

@@ -1,0 +1,9 @@
+{
+  "hooks": {
+    "workspaceOpen": [
+      {
+        "command": "./scripts/plugin-init.sh"
+      }
+    ]
+  }
+}

@@ -139,11 +139,19 @@ else
     "$TARGET/.cursor/hooks/fill-session-from-transcript.py" \
     "$TARGET/.cursor/hooks/ollama-context-gateway.py" 2>/dev/null || true
 
-  # Core agent skills
-  for skill in ship-feature graph-scout semantic-compress memory-graph-setup; do
+  # Team knowledge: AGENTS.md + agent skills
+  if [ -f "$SCRIPT_DIR/AGENTS.md" ]; then
+    cp "$SCRIPT_DIR/AGENTS.md" "$TARGET/AGENTS.md"
+  fi
+  for skill in \
+    memory-graph-conventions memory-graph-hooks memory-graph-testing \
+    ship-feature graph-scout semantic-compress memory-graph-setup grill-me; do
     if [ -f "$SCRIPT_DIR/.agents/skills/$skill/SKILL.md" ]; then
       mkdir -p "$TARGET/.agents/skills/$skill"
       cp "$SCRIPT_DIR/.agents/skills/$skill/SKILL.md" "$TARGET/.agents/skills/$skill/"
+      if [ -f "$SCRIPT_DIR/.agents/skills/$skill/WORKFLOWS.md" ]; then
+        cp "$SCRIPT_DIR/.agents/skills/$skill/WORKFLOWS.md" "$TARGET/.agents/skills/$skill/"
+      fi
     fi
   done
 
