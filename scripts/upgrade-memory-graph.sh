@@ -6,12 +6,15 @@
 #
 # Usage:
 #   cd /your/project
-#   bash memory-graph/scripts/upgrade-memory-graph.sh          # upgrade cwd
-#   bash memory-graph/scripts/upgrade-memory-graph.sh /path    # upgrade target
-#   bash ~/.cursor/skills/memory-graph/scripts/upgrade-memory-graph.sh
+#   bash scripts/upgrade-memory-graph.sh                         # usual (after first upgrade)
+#   bash memory-graph/scripts/upgrade-memory-graph.sh            # dev layout (nested toolkit/)
+#   bash /path/to/memory-graph/scripts/upgrade-memory-graph.sh . # run from toolkit clone
+#
+# First time (no saved toolkit path yet):
+#   MEMORY_GRAPH_SOURCE=/path/to/memory-graph bash scripts/upgrade-memory-graph.sh
 #
 # Env:
-#   MEMORY_GRAPH_SOURCE  — toolkit root (auto-detected if unset)
+#   MEMORY_GRAPH_SOURCE  — toolkit root (optional; saved to .memory-graph/toolkit-source)
 #   DRY_RUN=1            — print actions, do not copy
 
 set -euo pipefail
@@ -25,32 +28,64 @@ fail() { echo "error: $1" >&2; exit 1; }
 info() { echo "[upgrade] $*"; }
 warn() { echo "[warn] $*" >&2; }
 
+_is_toolkit_root() {
+  local root=$1
+  [[ -f "$root/.cursor/hooks/on-session-end.sh" ]]
+}
+
 _resolve_source() {
   local target=${1:-}
+  local candidate src
 
   if [[ -n "${MEMORY_GRAPH_SOURCE:-}" ]]; then
-    local src
     src=$(cd "$MEMORY_GRAPH_SOURCE" && pwd)
-    [[ -f "$src/.cursor/hooks/on-session-end.sh" ]] || fail "MEMORY_GRAPH_SOURCE has no hooks: $src"
+    _is_toolkit_root "$src" || fail "MEMORY_GRAPH_SOURCE has no hooks: $src"
     echo "$src"
     return
   fi
 
-  # Script lives in <toolkit>/scripts/ — prefer toolkit adjacent to this script
-  local candidate
+  # Script lives in <toolkit>/scripts/ — toolkit adjacent to this script
   candidate=$(cd "$SCRIPT_DIR/.." && pwd)
-  if [[ -f "$candidate/.cursor/hooks/on-session-end.sh" && "$candidate" != "$target" ]]; then
+  if _is_toolkit_root "$candidate" && [[ "$candidate" != "$target" ]]; then
     echo "$candidate"
     return
   fi
 
   # Dev layout: installed at project root, toolkit kept in memory-graph/
-  if [[ -n "$target" && -f "$target/memory-graph/.cursor/hooks/on-session-end.sh" ]]; then
+  if [[ -n "$target" ]] && _is_toolkit_root "$target/memory-graph"; then
     cd "$target/memory-graph" && pwd
     return
   fi
 
-  fail "Could not find toolkit source. Set MEMORY_GRAPH_SOURCE=/path/to/memory-graph"
+  # Last successful upgrade (per-repo, gitignored)
+  if [[ -n "$target" && -f "$target/.memory-graph/toolkit-source" ]]; then
+    src=$(cd "$(tr -d '[:space:]' < "$target/.memory-graph/toolkit-source")" && pwd)
+    if _is_toolkit_root "$src"; then
+      echo "$src"
+      return
+    fi
+    warn "ignored stale .memory-graph/toolkit-source (not a toolkit): $src"
+  fi
+
+  # Common global install locations
+  for candidate in \
+    "${HOME}/.cursor/skills/memory-graph" \
+    "${HOME}/.agents/skills/memory-graph"; do
+    if _is_toolkit_root "$candidate"; then
+      echo "$(cd "$candidate" && pwd)"
+      return
+    fi
+  done
+
+  fail "Could not find toolkit source. Run once with:
+  MEMORY_GRAPH_SOURCE=/path/to/memory-graph bash scripts/upgrade-memory-graph.sh"
+}
+
+_save_toolkit_source() {
+  local source=$1
+  [[ "$DRY_RUN" == "1" ]] && return
+  mkdir -p "$TARGET/.memory-graph"
+  printf '%s\n' "$source" > "$TARGET/.memory-graph/toolkit-source"
 }
 
 _is_installed() {
@@ -158,6 +193,7 @@ if [[ -d "$SOURCE/.agents" ]]; then
 fi
 
 _chmod_hooks_and_scripts
+_save_toolkit_source "$SOURCE"
 
 echo ""
 info "Done — upgraded code + .agents in $TARGET"

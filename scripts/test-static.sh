@@ -161,5 +161,7 @@ grep -q '.cursor-context.yaml' .cursor/hooks/on-session-start.sh || \
   fail "on-session-start.sh must inject cursor-context when enabled"
 grep -q 'ollama_context_on_start' .memory-graph/config.example.yaml || \
   fail "config.example.yaml must document ollama_context_on_start"
+grep -q 'toolkit-source' scripts/upgrade-memory-graph.sh || \
+  fail "upgrade-memory-graph.sh must persist toolkit-source for repeat upgrades"
 
 echo "OK — static checks passed"

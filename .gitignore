@@ -30,6 +30,7 @@ __pycache__/
 .memory-graph/config.yaml
 !.memory-graph/config.example.yaml
 .memory-graph/changed-files
+.memory-graph/toolkit-source
 
 # memory-graph runtime (local)
 memory/.semantic-pending

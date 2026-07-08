@@ -29,12 +29,16 @@ Upgrade existing install (hooks, scripts, `.agents` only — keeps memory, sessi
 
 ```bash
 cd /your/project
-bash memory-graph/scripts/upgrade-memory-graph.sh    # nested toolkit
-# or
-bash scripts/upgrade-memory-graph.sh               # after first upgrade
+bash scripts/upgrade-memory-graph.sh               # usual (remembers toolkit path)
+# first time only, if auto-detect fails:
+MEMORY_GRAPH_SOURCE=/path/to/memory-graph bash scripts/upgrade-memory-graph.sh
+# or run from toolkit clone:
+bash /path/to/memory-graph/scripts/upgrade-memory-graph.sh /your/project
 # dry run:
 DRY_RUN=1 bash scripts/upgrade-memory-graph.sh
 ```
+
+After a successful upgrade, the toolkit path is saved to `.memory-graph/toolkit-source` (gitignored).
 
 ---
 
