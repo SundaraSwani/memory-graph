@@ -87,7 +87,7 @@ class TestWriteScoutYaml(unittest.TestCase):
             }
             path = gs.write_scout_yaml(root, "q", scout, 500, "local")
             text = path.read_text(encoding="utf-8")
-        self.assertIn("drill_subagent: true", text)
+            self.assertIn("drill_subagent: true", text)
 
 
 class TestConfigParsing(unittest.TestCase):
