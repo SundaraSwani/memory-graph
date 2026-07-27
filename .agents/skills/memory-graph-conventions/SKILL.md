@@ -1,12 +1,12 @@
 ---
 name: memory-graph-conventions
-description: Conventions for the memory-graph toolkit (Python hooks, bash scripts, sandbox tests, Memory Observatory dashboard). Apply when editing .cursor/hooks/, scripts/, tests/, dashboard/, or docs/ in this repo.
-version: 1.0.0
+description: Conventions for the memory-graph toolkit (Cursor + Copilot hooks, bash scripts, sandbox tests, Memory Observatory dashboard). Apply when editing .cursor/hooks/, .github/hooks/, scripts/, tests/, dashboard/, or docs/ in this repo.
+version: 1.1.0
 ---
 
 # memory-graph toolkit
 
-Persistent agent memory for Cursor repos — session hooks, tiered compression,
+Persistent agent memory for Cursor and Copilot — session hooks, tiered compression,
 graphify integration, and optional Ollama gateway. Apply this skill whenever the
 change touches toolkit code (not consumer-repo app logic).
 
@@ -29,7 +29,20 @@ change touches toolkit code (not consumer-repo app logic).
     ├── fill-session-from-transcript.py
     └── semantic-compress-ollama.py
 
-scripts/                      # Enable scripts, test runners, upgrade path
+.github/
+├── hooks/
+│   └── memory-graph.json     # Copilot hook config (calls adapters)
+└── copilot-instructions.md   # Always-on context for Copilot (mirrors main.mdc)
+
+scripts/
+├── adapters/                 # IDE-specific payload translators
+│   ├── copilot-session-start.sh
+│   ├── copilot-session-end.sh
+│   └── copilot-post-tool.sh
+├── enable-*.sh               # Feature enablers
+├── upgrade-memory-graph.sh   # Refresh hooks from toolkit
+└── test*.sh                  # Test runners
+
 tests/                        # Sandbox unit tests (no network, no LLM)
 tests/helpers.py              # sandbox_repo(), load_hook(), write_config()
 dashboard/                    # Memory Observatory (scan.py, serve.py)
@@ -44,8 +57,9 @@ graphify-out/                 # Auto-generated — never hand-edit
 AGENTS.md                     # Skill maintenance contract
 ```
 
-**Key principle:** hooks are the runtime. Scripts enable features. Tests prove
-hook contracts in isolated `/tmp` sandboxes. Skills encode how to change all three.
+**Key principle:** hooks are the runtime. Scripts enable features. Adapters translate
+IDE payloads. Tests prove hook contracts in isolated `/tmp` sandboxes. Skills encode
+how to change all of these.
 
 ## God nodes (touch with care)
 
