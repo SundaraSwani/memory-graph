@@ -10,9 +10,38 @@
 
 set -euo pipefail
 
+# ── IDE selection (--ide=cursor|copilot|both) ────────────────────────────
+IDE_TARGET=""
+for arg in "$@"; do
+  case "$arg" in
+    --ide=*) IDE_TARGET="${arg#--ide=}" ;;
+  esac
+done
+
+# Auto-detect IDE if not specified
+_detect_ide() {
+  local has_cursor=false has_copilot=false
+  [[ -d "$TARGET/.cursor" ]] && has_cursor=true
+  [[ -d "$TARGET/.github/copilot" || -d "$TARGET/.github/hooks" ]] && has_copilot=true
+  
+  if $has_cursor && $has_copilot; then
+    echo "both"
+  elif $has_copilot; then
+    echo "copilot"
+  else
+    echo "cursor"  # default
+  fi
+}
+
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 TARGET=$(pwd)
 REPO_NAME=$(basename "$TARGET")
+
+if [[ -z "$IDE_TARGET" ]]; then
+  IDE_TARGET=$(_detect_ide)
+fi
+
+echo "IDE target: $IDE_TARGET"
 
 # Detect mode:
 # In-place = setup script is running from the target project itself
@@ -53,6 +82,7 @@ if [ "$MODE" = "inplace" ]; then
            "$TARGET/scripts/enable-token-savers.sh" \
            "$TARGET/scripts/enable-token-first.sh" 2>/dev/null || true
   chmod +x "$TARGET/scripts/upgrade-memory-graph.sh" 2>/dev/null || true
+  chmod +x "$TARGET/scripts/adapters/"*.sh 2>/dev/null || true
 
   # Dev hooks: pre-push runs sandbox tests before git push
   if [ -f "$TARGET/scripts/install-dev-hooks.sh" ]; then
@@ -159,6 +189,39 @@ else
 
 fi
 
+# ── Copilot hooks installation (--ide=copilot or --ide=both) ──────────────
+_install_copilot_hooks() {
+  echo ""
+  echo "Installing Copilot hooks..."
+  
+  mkdir -p "$TARGET/.github/hooks"
+  mkdir -p "$TARGET/scripts/adapters"
+  
+  # Copy hook config
+  if [ -f "$SCRIPT_DIR/.github/hooks/memory-graph.json" ]; then
+    cp "$SCRIPT_DIR/.github/hooks/memory-graph.json" "$TARGET/.github/hooks/"
+  fi
+  
+  # Copy copilot-instructions.md
+  if [ -f "$SCRIPT_DIR/.github/copilot-instructions.md" ]; then
+    cp "$SCRIPT_DIR/.github/copilot-instructions.md" "$TARGET/.github/"
+  fi
+  
+  # Copy adapters
+  for adapter in copilot-session-end.sh copilot-session-start.sh copilot-post-tool.sh; do
+    if [ -f "$SCRIPT_DIR/scripts/adapters/$adapter" ]; then
+      cp "$SCRIPT_DIR/scripts/adapters/$adapter" "$TARGET/scripts/adapters/"
+      chmod +x "$TARGET/scripts/adapters/$adapter"
+    fi
+  done
+  
+  echo "[ok] .github/hooks/ configured for Copilot"
+}
+
+if [[ "$IDE_TARGET" == "copilot" || "$IDE_TARGET" == "both" ]]; then
+  _install_copilot_hooks
+fi
+
 # ── Both modes: git post-commit hook ──────────────────────────────────────
 if [ -d "$TARGET/.git" ]; then
   HOOK_FILE="$TARGET/.git/hooks/post-commit"
@@ -206,13 +269,18 @@ fi
 
 # ── Done ──────────────────────────────────────────────────────────────────
 echo ""
-echo "Done. memory-graph active in $TARGET"
+echo "Done. memory-graph active in $TARGET (IDE: $IDE_TARGET)"
 echo ""
 echo "Next:"
-  echo "  /graphify .              — build knowledge graph + main.mdc Codebase summary"
+echo "  /graphify .              — build knowledge graph + main.mdc Codebase summary"
 echo "  bash scripts/enable-token-savers.sh  — agent brief + tool output compress"
 echo "  bash scripts/enable-graph-scout-local.sh — local graph scout (optional)"
 echo "  /grill-me                — optional, for new features"
 echo "  INSTALL_GSTACK=1 bash setup  — add gstack SDLC skills (/spec, /review, /qa, /ship)"
 echo "  bash scripts/test.sh         — run sandbox tests before push"
+echo ""
+echo "IDE options:"
+echo "  bash setup --ide=cursor   — Cursor only (default)"
+echo "  bash setup --ide=copilot  — GitHub Copilot only"
+echo "  bash setup --ide=both     — install for both IDEs"
 echo "  bash scripts/upgrade-memory-graph.sh — refresh hooks/scripts/.agents only"

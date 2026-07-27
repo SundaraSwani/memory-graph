@@ -60,6 +60,28 @@ if cfg.get("agent_brief"):
 | `fill-session-from-transcript.py` | transcript + session md | updates frontmatter fields |
 | `compress-tool-output.py` | large tool output | truncated summary (postToolUse) |
 
+## Copilot adapters
+
+Copilot hooks live in `.github/hooks/memory-graph.json` and use adapters in `scripts/adapters/`:
+
+| Adapter | Copilot event | What it does |
+|---------|---------------|--------------|
+| `copilot-session-start.sh` | `sessionStart` | Calls Cursor hook, transforms `additional_context` → `additionalContext` |
+| `copilot-session-end.sh` | `sessionEnd` | Translates Copilot payload to Cursor format, calls pipeline |
+| `copilot-post-tool.sh` | `postToolUse` | Compresses large tool outputs |
+
+**Adapter contract:**
+- Read Copilot JSON from stdin (camelCase: `sessionId`, `transcriptPath`, `toolName`)
+- Export `IDE_SOURCE=copilot` for downstream scripts that care
+- Call shared Cursor hooks in `.cursor/hooks/`
+- Transform output to Copilot format (camelCase keys)
+
+**Adding a new Copilot hook:**
+1. Add event to `.github/hooks/memory-graph.json`
+2. Create adapter in `scripts/adapters/copilot-<event>.sh`
+3. Adapter reads stdin, calls Cursor hook, transforms output
+4. Add test in `tests/test_copilot_adapter.py`
+
 ## Error handling
 
 - Hooks exit silently on failure — never block the agent with hook errors.
@@ -71,6 +93,7 @@ if cfg.get("agent_brief"):
 - **Stop hook:** append step in `on-session-end.sh` after compression, before exit.
 - **Start hook:** extend `on-session-start.sh` — keep injection under token budget.
 - **Cursor hook registration:** update `.cursor/hooks.json` if adding a new event type.
+- **Copilot hook registration:** update `.github/hooks/memory-graph.json` + create adapter.
 - Always add a sandbox test proving the hook's contract in isolation.
 
 ## Linting / style

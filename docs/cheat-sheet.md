@@ -42,6 +42,42 @@ After a successful upgrade, the toolkit path is saved to `.memory-graph/toolkit-
 
 ---
 
+## IDE setup
+
+memory-graph supports both **Cursor** and **GitHub Copilot**. The setup script auto-detects based on existing config, or you can specify:
+
+```bash
+bash setup --ide=cursor    # Cursor only (default)
+bash setup --ide=copilot   # GitHub Copilot only  
+bash setup --ide=both      # install for both IDEs
+```
+
+### Cursor (default)
+
+Hooks in `.cursor/hooks.json` fire on session start/stop, file edit, and tool use:
+- `sessionStart` → injects agent brief / Ollama context
+- `afterFileEdit` → tracks changed files
+- `postToolUse` → compresses large tool outputs
+- `stop` → creates session file, compresses memory, updates graph
+
+### GitHub Copilot
+
+Hooks in `.github/hooks/memory-graph.json` using adapters in `scripts/adapters/`:
+- `sessionStart` → `copilot-session-start.sh` → returns `additionalContext`
+- `sessionEnd` → `copilot-session-end.sh` → calls shared Cursor pipeline
+- `postToolUse` → `copilot-post-tool.sh` → compresses large outputs
+
+**Adapter architecture:** Copilot adapters read the Copilot JSON payload (camelCase), translate to Cursor format, and call the shared `.cursor/hooks/` scripts. This means:
+- One codebase for both IDEs
+- Cursor hooks remain the source of truth
+- Updates to hooks work for both IDEs automatically
+
+**Requirements:**
+- `jq` installed (for JSON parsing in adapters)
+- Copilot CLI or VS Code Copilot with hooks support
+
+---
+
 ## Files the agent reads
 
 | Read first | Path |

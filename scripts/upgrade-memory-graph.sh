@@ -159,8 +159,15 @@ if [[ -d "$SOURCE/.cursor/hooks" ]]; then
 fi
 
 # ── Code: project scripts ───────────────────────────────────────────────────
+# Copy upgrade-memory-graph.sh last — bash reads this file incrementally; overwriting
+# it mid-run causes parse errors on macOS bash 3.2.
 if [[ -d "$SOURCE/scripts" ]]; then
-  _copy_tree "$SOURCE/scripts" "$TARGET/scripts"
+  find "$SOURCE/scripts" -type f \
+    ! -path '*/__pycache__/*' ! -name '*.pyc' ! -name 'upgrade-memory-graph.sh' \
+    | while read -r f; do
+    rel="${f#"$SOURCE/scripts"/}"
+    _copy_file "$f" "$TARGET/scripts/$rel"
+  done
   info "updated scripts/"
 fi
 
@@ -193,6 +200,12 @@ if [[ -d "$SOURCE/.agents" ]]; then
 fi
 
 _chmod_hooks_and_scripts
+
+if [[ -f "$SOURCE/scripts/upgrade-memory-graph.sh" ]]; then
+  _copy_file "$SOURCE/scripts/upgrade-memory-graph.sh" "$TARGET/scripts/upgrade-memory-graph.sh"
+  info "updated scripts/upgrade-memory-graph.sh"
+fi
+
 _save_toolkit_source "$SOURCE"
 
 echo ""

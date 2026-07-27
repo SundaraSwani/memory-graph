@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "./scripts/adapters/copilot-session-start.sh",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "./scripts/adapters/copilot-session-end.sh",
+        "cwd": ".",
+        "timeoutSec": 60
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "matcher": "Bash|Edit|Read|Grep|Glob",
+        "bash": "./scripts/adapters/copilot-post-tool.sh",
+        "cwd": ".",
+        "timeoutSec": 15
+      }
+    ]
+  }
+}
