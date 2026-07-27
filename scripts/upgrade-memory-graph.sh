@@ -199,6 +199,16 @@ if [[ -d "$SOURCE/.agents" ]]; then
   info "updated .agents/"
 fi
 
+# ── Copilot: hooks + instructions ───────────────────────────────────────────
+if [[ -d "$SOURCE/.github/hooks" ]]; then
+  _copy_tree "$SOURCE/.github/hooks" "$TARGET/.github/hooks"
+  info "updated .github/hooks/"
+fi
+if [[ -f "$SOURCE/.github/copilot-instructions.md" ]]; then
+  _copy_file "$SOURCE/.github/copilot-instructions.md" "$TARGET/.github/copilot-instructions.md"
+  info "updated .github/copilot-instructions.md"
+fi
+
 _chmod_hooks_and_scripts
 
 if [[ -f "$SOURCE/scripts/upgrade-memory-graph.sh" ]]; then
@@ -209,7 +219,7 @@ fi
 _save_toolkit_source "$SOURCE"
 
 echo ""
-info "Done — upgraded code + .agents in $TARGET"
+info "Done — upgraded code + .agents + .github/hooks in $TARGET"
 echo ""
 echo "Preserved (not touched):"
 echo "  memory/  sessions/  memory.md"
