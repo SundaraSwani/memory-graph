@@ -22,8 +22,11 @@ done
 _detect_ide() {
   local has_cursor=false has_copilot=false
   [[ -d "$TARGET/.cursor" ]] && has_cursor=true
-  [[ -d "$TARGET/.github/copilot" || -d "$TARGET/.github/hooks" ]] && has_copilot=true
-  
+  # copilot signals: existing hooks dir, copilot-instructions, or .vscode (VS Code host)
+  [[ -d "$TARGET/.github/copilot" || -d "$TARGET/.github/hooks" \
+     || -f "$TARGET/.github/copilot-instructions.md" \
+     || -d "$TARGET/.vscode" ]] && has_copilot=true
+
   if $has_cursor && $has_copilot; then
     echo "both"
   elif $has_copilot; then
@@ -208,7 +211,7 @@ _install_copilot_hooks() {
   fi
   
   # Copy adapters
-  for adapter in copilot-session-end.sh copilot-session-start.sh copilot-post-tool.sh; do
+  for adapter in copilot-session-end.sh copilot-session-start.sh copilot-post-tool.sh copilot-file-track.sh; do
     if [ -f "$SCRIPT_DIR/scripts/adapters/$adapter" ]; then
       cp "$SCRIPT_DIR/scripts/adapters/$adapter" "$TARGET/scripts/adapters/"
       chmod +x "$TARGET/scripts/adapters/$adapter"

@@ -24,6 +24,13 @@
         "bash": "./scripts/adapters/copilot-post-tool.sh",
         "cwd": ".",
         "timeoutSec": 15
+      },
+      {
+        "type": "command",
+        "matcher": ".*",
+        "bash": "./scripts/adapters/copilot-file-track.sh",
+        "cwd": ".",
+        "timeoutSec": 5
       }
     ]
   }

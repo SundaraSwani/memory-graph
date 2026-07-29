@@ -38,6 +38,9 @@ export COPILOT_TRANSCRIPT_PATH="$TRANSCRIPT_PATH"
 export COPILOT_SESSION_REASON="$REASON"
 export IDE_SOURCE="copilot"
 
+# Copilot has no Cursor edit ledger — force git-only change detection unless caller overrides
+export MEMORY_TRACK="${MEMORY_TRACK:-git}"
+
 # Transform Copilot payload to Cursor-compatible format for the shared pipeline
 # The existing on-session-end.sh reads: { loop_count, status, transcript_path }
 cursor_payload=$(cat <<JSON

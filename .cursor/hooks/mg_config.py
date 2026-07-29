@@ -50,6 +50,7 @@ DEFAULTS: dict = {
     "archive_enrich_on_move": True,
     "archive_monthly_summary": True,
     "graph_summary_on_stop": True,
+    "session_min_files": 3,
     "graph_scout_local": False,
     "graph_scout_budget": 500,
     "graph_scout_summarize": False,

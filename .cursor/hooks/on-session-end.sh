@@ -6,7 +6,7 @@
 # What it does:
 #   1. Guards against loops (only fires once per chat, only on clean completion)
 #   2. Detects changed files via git diff and/or Cursor afterFileEdit ledger (MEMORY_TRACK)
-#   3. Skips low-signal changes (<3 files and no god-node blast radius)
+#   3. Skips low-signal changes (<session_min_files files and no god-node blast radius)
 #   4. Creates sessions/YYYY-MM-DD-N.md with structured YAML frontmatter (no prose template)
 #   5. Appends a row to memory.md index
 #   6. Runs graphify --update in background if code files changed (AST-only, no LLM)
@@ -39,6 +39,14 @@ _graph_scout_on_stop_enabled() {
   local cfg="$REPO_ROOT/.memory-graph/config.yaml"
   [[ -f "$cfg" ]] && grep -qE '^graph_scout_on_stop:[[:space:]]*true' "$cfg" 2>/dev/null && \
     grep -qE '^graph_scout_local:[[:space:]]*true' "$cfg" 2>/dev/null
+}
+
+_session_min_files() {
+  python3 - "$REPO_ROOT" <<'PYEOF'
+import sys; sys.path.insert(0, sys.argv[1] + "/.cursor/hooks")
+from mg_config import load_config; from pathlib import Path
+print(load_config(Path(sys.argv[1])).get("session_min_files", 3))
+PYEOF
 }
 
 _precompute_graph_scout() {
@@ -310,8 +318,9 @@ PYEOF
   )" 2>/dev/null || true
 fi
 
-# ── 4. Smart gate — skip low-signal sessions (<3 files, no god-node hit) ────
-if [ "$file_count" -lt 3 ] && [ -z "$god_nodes_hit" ]; then
+# ── 4. Smart gate — skip low-signal sessions (<session_min_files files, no god-node hit) ────
+min_files=$(_session_min_files)
+if [ "$file_count" -lt "$min_files" ] && [ -z "$god_nodes_hit" ]; then
   # Still run graphify AST update in background if code changed, but no session file
   code_exts='\.py$|\.ts$|\.tsx$|\.js$|\.jsx$|\.go$|\.rs$|\.java$|\.cpp$|\.c$|\.rb$|\.swift$|\.kt$|\.cs$|\.scala$|\.php$'
   has_code=$(echo "$raw_changed" | grep -E "$code_exts" | head -1 || true)

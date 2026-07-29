@@ -19,6 +19,9 @@ core:
   archive_why_fields: true
   archive_enrich_on_move: true
 
+  # Session gate
+  session_min_files: 3
+
   # Graph + brief
   graph_summary_on_stop: true
   graph_scout_local: false
